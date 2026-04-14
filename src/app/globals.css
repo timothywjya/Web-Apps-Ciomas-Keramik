@@ -53,14 +53,7 @@ h1, h2, h3 {
 ::-webkit-scrollbar-thumb:hover { background: var(--stone-400); }
 
 /* Sidebar */
-.sidebar {
-  background: linear-gradient(180deg, #1c1917 0%, #292524 60%, #1c1917 100%);
-  position: fixed;
-  left: 0; top: 0; bottom: 0;
-  width: 260px;
-  z-index: 50;
-  border-right: 1px solid #44403c;
-}
+/* sidebar styles moved to component */
 
 .sidebar-logo {
   font-family: 'Cormorant Garamond', serif;
@@ -109,7 +102,6 @@ h1, h2, h3 {
 
 /* Main content */
 .main-content {
-  margin-left: 260px;
   min-height: 100vh;
   background: var(--stone-50);
 }
@@ -455,12 +447,12 @@ h1, h2, h3 {
 
 /* Responsive */
 @media (max-width: 768px) {
-  .sidebar { transform: translateX(-100%); }
-  .main-content { margin-left: 0; }
+
+
 }
 
 /* Print */
 @media print {
-  .sidebar, .topbar { display: none; }
-  .main-content { margin-left: 0; }
+
+
 }

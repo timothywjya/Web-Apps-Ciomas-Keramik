@@ -13,9 +13,9 @@ export default async function DashboardLayout({
   if (!session) redirect('/login');
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
+    <div style={{ display: 'flex', minHeight: '100vh', background: '#f7f5f2' }}>
       <Sidebar user={session} />
-      <main className="main-content">
+      <main style={{ flex: 1, minWidth: 0, overflowX: 'hidden' }}>
         {children}
       </main>
     </div>
