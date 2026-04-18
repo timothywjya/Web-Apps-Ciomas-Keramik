@@ -11,7 +11,7 @@ export interface UserPayload {
   username: string;
   email: string;
   full_name: string;
-  role: string;
+  role: 'admin' | 'manager' | 'kasir' | 'gudang';
 }
 
 export async function hashPassword(password: string): Promise<string> {
