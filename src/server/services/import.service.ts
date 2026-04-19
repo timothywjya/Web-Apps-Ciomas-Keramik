@@ -1,15 +1,17 @@
 import {
-  bulkUpsertCategories, bulkUpsertSuppliers, bulkUpsertProducts,
-  ImportResult, ImportProduct,
+  bulkUpsertCategories, bulkUpsertSuppliers,
+  bulkUpsertCustomers,  bulkUpsertProducts,
+  ImportResult, ImportProduct, ImportCustomer,
 } from '@/server/repositories/import.repository';
 
-export type ImportTarget = 'categories' | 'suppliers' | 'products';
+export type ImportTarget = 'categories' | 'suppliers' | 'customers' | 'products';
 
 // ── CSV parser ────────────────────────────────────────────────────────────────
-// Minimal RFC-4180 parser — no external dependency needed.
+// RFC-4180 compliant. Handles: quoted fields, embedded commas, escaped quotes ("").
+// No external dependency.
 
 function parseCSV(text: string): string[][] {
-  const rows: string[][] = [];
+  const rows : string[][] = [];
   const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
 
   for (const line of lines) {
@@ -19,9 +21,8 @@ function parseCSV(text: string): string[][] {
 
     while (i < line.length) {
       if (line[i] === '"') {
-        // Quoted field
         let val = '';
-        i++; // skip opening quote
+        i++;
         while (i < line.length) {
           if (line[i] === '"' && line[i + 1] === '"') { val += '"'; i += 2; }
           else if (line[i] === '"') { i++; break; }
@@ -41,113 +42,158 @@ function parseCSV(text: string): string[][] {
   return rows;
 }
 
-// ── Import handlers ───────────────────────────────────────────────────────────
+// ── Header resolver ───────────────────────────────────────────────────────────
+
+function makeColResolver(header: string[]) {
+  const h = header.map(c => c.toLowerCase().trim());
+  return (key: string) => h.indexOf(key);
+}
+
+function reqCol(col: number, name: string): void {
+  if (col === -1) throw new Error(`Kolom "${name}" wajib ada di CSV`);
+}
+
+function strVal(row: string[], i: number): string | undefined {
+  return i !== -1 ? row[i]?.trim() || undefined : undefined;
+}
+
+function numVal(row: string[], i: number): number | undefined {
+  if (i === -1) return undefined;
+  const v = parseFloat(row[i]);
+  return isNaN(v) ? undefined : v;
+}
+
+// ── Import: Categories ────────────────────────────────────────────────────────
 
 export async function importCategories(csvText: string): Promise<ImportResult> {
   const [header, ...dataRows] = parseCSV(csvText);
-  if (!header) throw new Error('CSV kosong');
+  if (!header?.length) throw new Error('CSV kosong atau format tidak valid');
 
-  const h = header.map(c => c.toLowerCase().trim());
-  const iName = h.indexOf('name');
-  const iDesc = h.indexOf('description');
-  if (iName === -1) throw new Error('Kolom "name" wajib ada di CSV');
+  const col   = makeColResolver(header);
+  const iName = col('name');
+  reqCol(iName, 'name');
 
   const rows = dataRows
     .filter(r => r[iName]?.trim())
     .map(r => ({
       name       : r[iName].trim(),
-      description: iDesc !== -1 ? r[iDesc]?.trim() || undefined : undefined,
+      description: strVal(r, col('description')),
     }));
 
   if (!rows.length) throw new Error('Tidak ada data valid di CSV');
   return bulkUpsertCategories(rows);
 }
 
+// ── Import: Suppliers ─────────────────────────────────────────────────────────
+
 export async function importSuppliers(csvText: string): Promise<ImportResult> {
   const [header, ...dataRows] = parseCSV(csvText);
-  if (!header) throw new Error('CSV kosong');
+  if (!header?.length) throw new Error('CSV kosong atau format tidak valid');
 
-  const h = header.map(c => c.toLowerCase().trim());
-  const col = (key: string) => h.indexOf(key);
-
+  const col   = makeColResolver(header);
   const iName = col('name');
-  if (iName === -1) throw new Error('Kolom "name" wajib ada di CSV');
-
-  const get = (r: string[], i: number) => (i !== -1 ? r[i]?.trim() || undefined : undefined);
+  reqCol(iName, 'name');
 
   const rows = dataRows
     .filter(r => r[iName]?.trim())
     .map(r => ({
       name          : r[iName].trim(),
-      contact_person: get(r, col('contact_person')),
-      phone         : get(r, col('phone')),
-      email         : get(r, col('email')),
-      address       : get(r, col('address')),
-      city          : get(r, col('city')),
-      notes         : get(r, col('notes')),
+      contact_person: strVal(r, col('contact_person')),
+      phone         : strVal(r, col('phone')),
+      email         : strVal(r, col('email')),
+      address       : strVal(r, col('address')),
+      city          : strVal(r, col('city')),
+      notes         : strVal(r, col('notes')),
     }));
 
   if (!rows.length) throw new Error('Tidak ada data valid di CSV');
   return bulkUpsertSuppliers(rows);
 }
 
+// ── Import: Customers ─────────────────────────────────────────────────────────
+
+const CUSTOMER_TYPES = new Set(['retail', 'grosir', 'kontraktor']);
+
+export async function importCustomers(csvText: string): Promise<ImportResult> {
+  const [header, ...dataRows] = parseCSV(csvText);
+  if (!header?.length) throw new Error('CSV kosong atau format tidak valid');
+
+  const col   = makeColResolver(header);
+  const iName = col('name');
+  reqCol(iName, 'name');
+
+  const rows = dataRows
+    .filter(r => r[iName]?.trim())
+    .map((r): ImportCustomer => {
+      const rawType = strVal(r, col('customer_type'))?.toLowerCase();
+      return {
+        name         : r[iName].trim(),
+        phone        : strVal(r, col('phone')),
+        email        : strVal(r, col('email')),
+        address      : strVal(r, col('address')),
+        city         : strVal(r, col('city')),
+        customer_type: CUSTOMER_TYPES.has(rawType ?? '') ? rawType as ImportCustomer['customer_type'] : 'retail',
+        notes        : strVal(r, col('notes')),
+      };
+    });
+
+  if (!rows.length) throw new Error('Tidak ada data valid di CSV');
+  return bulkUpsertCustomers(rows);
+}
+
+// ── Import: Products ──────────────────────────────────────────────────────────
+
 export async function importProducts(csvText: string): Promise<ImportResult> {
   const [header, ...dataRows] = parseCSV(csvText);
-  if (!header) throw new Error('CSV kosong');
+  if (!header?.length) throw new Error('CSV kosong atau format tidak valid');
 
-  const h = header.map(c => c.toLowerCase().trim());
-  const col = (key: string) => h.indexOf(key);
-
+  const col   = makeColResolver(header);
   const iSku  = col('sku');
   const iName = col('name');
-  if (iSku === -1 || iName === -1) throw new Error('Kolom "sku" dan "name" wajib ada di CSV');
-
-  const num = (r: string[], i: number) => {
-    if (i === -1) return undefined;
-    const v = parseFloat(r[i]);
-    return isNaN(v) ? undefined : v;
-  };
-  const str = (r: string[], i: number) => (i !== -1 ? r[i]?.trim() || undefined : undefined);
+  const iSell = col('selling_price');
+  reqCol(iSku,  'sku');
+  reqCol(iName, 'name');
+  reqCol(iSell, 'selling_price');
 
   const errors: ImportResult['errors'] = [];
   const rows = dataRows
     .map((r, idx): ImportProduct | null => {
-      const sku           = r[iSku]?.trim();
-      const name          = r[iName]?.trim();
-      const purchase_price = num(r, col('purchase_price'));
-      const selling_price  = num(r, col('selling_price'));
+      const sku          = r[iSku]?.trim();
+      const name         = r[iName]?.trim();
+      const selling_price = numVal(r, iSell);
 
       if (!sku || !name) return null;
+
       if (selling_price === undefined) {
-        errors.push({ row: idx + 2, message: `Baris ${idx + 2}: selling_price tidak valid` });
+        errors.push({ row: idx + 2, message: `Baris ${idx + 2}: selling_price tidak valid (nilai: "${r[iSell]}")` });
         return null;
       }
 
       return {
         sku,
         name,
-        category_name   : str(r, col('category_name')),
-        supplier_name   : str(r, col('supplier_name')),
-        description     : str(r, col('description')),
-        unit            : str(r, col('unit')),
-        size            : str(r, col('size')),
-        surface_type    : str(r, col('surface_type')),
-        material        : str(r, col('material')),
-        color           : str(r, col('color')),
-        brand           : str(r, col('brand')),
-        origin_country  : str(r, col('origin_country')),
-        purchase_price  : purchase_price ?? 0,
+        category_name   : strVal(r, col('category_name')),
+        supplier_name   : strVal(r, col('supplier_name')),
+        description     : strVal(r, col('description')),
+        unit            : strVal(r, col('unit')),
+        size            : strVal(r, col('size')),
+        surface_type    : strVal(r, col('surface_type')),
+        material        : strVal(r, col('material')),
+        color           : strVal(r, col('color')),
+        brand           : strVal(r, col('brand')),
+        origin_country  : strVal(r, col('origin_country')),
+        purchase_price  : numVal(r, col('purchase_price')) ?? 0,
         selling_price,
-        grosir_price    : num(r, col('grosir_price')),
-        kontraktor_price: num(r, col('kontraktor_price')),
-        stock_quantity  : num(r, col('stock_quantity')) ?? 0,
-        min_stock       : num(r, col('min_stock'))      ?? 10,
-        max_stock       : num(r, col('max_stock'))      ?? 500,
+        grosir_price    : numVal(r, col('grosir_price')),
+        kontraktor_price: numVal(r, col('kontraktor_price')),
+        stock_quantity  : numVal(r, col('stock_quantity')) ?? 0,
+        min_stock       : numVal(r, col('min_stock'))      ?? 10,
+        max_stock       : numVal(r, col('max_stock'))      ?? 500,
       };
     })
     .filter((r): r is ImportProduct => r !== null);
 
-  if (!rows.length) throw new Error('Tidak ada data valid di CSV');
+  if (!rows.length && !errors.length) throw new Error('Tidak ada data valid di CSV');
 
   const result = await bulkUpsertProducts(rows);
   result.errors.push(...errors);
@@ -157,37 +203,51 @@ export async function importProducts(csvText: string): Promise<ImportResult> {
 
 // ── CSV template generator ────────────────────────────────────────────────────
 
+type TemplateSpec = { headers: string[]; example: string[] };
+
+const TEMPLATES: Record<ImportTarget, TemplateSpec> = {
+  categories: {
+    headers: ['name', 'description'],
+    example: ['Granit', 'Produk granit berkualitas tinggi'],
+  },
+  suppliers: {
+    headers: ['name', 'contact_person', 'phone', 'email', 'address', 'city', 'notes'],
+    example: ['PT Keramik Nusantara', 'Budi Santoso', '08123456789',
+              'budi@keramiknusantara.com', 'Jl. Industri No.1', 'Jakarta', ''],
+  },
+  customers: {
+    headers: ['name', 'phone', 'email', 'address', 'city', 'customer_type', 'notes'],
+    example: ['Toko Bangunan Maju', '08211234567', 'maju@email.com',
+              'Jl. Raya Bogor No.10', 'Bogor', 'retail', ''],
+  },
+  products: {
+    headers: [
+      'sku', 'name', 'category_name', 'supplier_name', 'description',
+      'unit', 'size', 'surface_type', 'material', 'color', 'brand', 'origin_country',
+      'purchase_price', 'selling_price', 'grosir_price', 'kontraktor_price',
+      'stock_quantity', 'min_stock', 'max_stock',
+    ],
+    example: [
+      '0000001', 'Granit Marble White 60x60', 'Granit', 'PT Keramik Nusantara',
+      'Granit motif marmer premium', 'pcs', '60x60', 'Polished', 'Granit',
+      'Putih', 'Roman', 'Indonesia',
+      '85000', '120000', '110000', '100000', '100', '10', '500',
+    ],
+  },
+};
+
+function escapeCSVField(v: string): string {
+  return v.includes(',') || v.includes('"') || v.includes('\n')
+    ? `"${v.replace(/"/g, '""')}"`
+    : v;
+}
+
 export function generateTemplate(target: ImportTarget): { csv: string; filename: string } {
-  const templates: Record<ImportTarget, { headers: string[]; example: string[] }> = {
-    categories: {
-      headers: ['name', 'description'],
-      example: ['Granit', 'Produk granit berkualitas tinggi'],
-    },
-    suppliers: {
-      headers: ['name', 'contact_person', 'phone', 'email', 'address', 'city', 'notes'],
-      example: ['PT Keramik Nusantara', 'Budi Santoso', '08123456789',
-                'budi@keramiknusantara.com', 'Jl. Industri No. 1', 'Jakarta', ''],
-    },
-    products: {
-      headers: [
-        'sku', 'name', 'category_name', 'supplier_name', 'description',
-        'unit', 'size', 'surface_type', 'material', 'color', 'brand', 'origin_country',
-        'purchase_price', 'selling_price', 'grosir_price', 'kontraktor_price',
-        'stock_quantity', 'min_stock', 'max_stock',
-      ],
-      example: [
-        '0000001', 'Granit Marble White 60x60', 'Granit', 'PT Keramik Nusantara',
-        'Granit motif marmer premium', 'pcs', '60x60', 'Polished', 'Granit',
-        'Putih', 'Roman', 'Indonesia',
-        '85000', '120000', '110000', '100000', '100', '10', '500',
-      ],
-    },
+  const spec       = TEMPLATES[target];
+  const headerRow  = spec.headers.join(',');
+  const exampleRow = spec.example.map(escapeCSVField).join(',');
+  return {
+    csv     : `${headerRow}\n${exampleRow}\n`,
+    filename: `template_import_${target}.csv`,
   };
-
-  const t = templates[target];
-  const headerRow  = t.headers.join(',');
-  const exampleRow = t.example.map(v => v.includes(',') ? `"${v}"` : v).join(',');
-  const csv = `${headerRow}\n${exampleRow}\n`;
-
-  return { csv, filename: `template_${target}.csv` };
 }
