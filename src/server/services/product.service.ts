@@ -1,6 +1,3 @@
-// ─────────────────────────────────────────────
-// server/services/product.service.ts
-// ─────────────────────────────────────────────
 import { ProductRepository } from '@/server/repositories/product.repository';
 import { StockRepository } from '@/server/repositories/stock.repository';
 import { dbQuery } from '@/server/repositories/base.repository';

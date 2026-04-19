@@ -1,6 +1,3 @@
-// ─────────────────────────────────────────────
-// server/services/user.service.ts
-// ─────────────────────────────────────────────
 import { hashPassword } from '@/lib/auth';
 import { UserRepository } from '@/server/repositories/user.repository';
 import type { User, CreateUserDto, UpdateUserDto } from '@/types';

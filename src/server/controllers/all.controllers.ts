@@ -1,19 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { SaleService } from '@/server/services/sale.service';
-import { ok, created, requireAuth, requireRole, handle } from './base.controller';
+import { SaleService }     from '@/server/services/sale.service';
 import { PurchaseService } from '@/server/services/purchase.service';
+import { StockService }    from '@/server/services/stock.service';
+import { ReportService }   from '@/server/services/report.service';
+import { CategoryService, SupplierService, CustomerService } from '@/server/services/misc.service';
+import { ok, created, requireAuth, requireRole, handle } from './base.controller';
+import type { ReportType } from '@/types';
+
+// ── Sale ──────────────────────────────────────────────────────────────────────
 
 export const SaleController = {
+
   async list(req: NextRequest): Promise<NextResponse> {
     return handle(async () => {
       const auth = await requireAuth();
       if (auth instanceof NextResponse) return auth;
-      const sp = req.nextUrl.searchParams;
+      const sp    = req.nextUrl.searchParams;
       const sales = await SaleService.getAll({
         search: sp.get('search') ?? '',
         status: sp.get('status') ?? '',
-        from:   sp.get('from')   ?? '',
-        to:     sp.get('to')     ?? '',
+        from  : sp.get('from')   ?? '',
+        to    : sp.get('to')     ?? '',
       });
       return ok({ sales });
     });
@@ -23,8 +30,7 @@ export const SaleController = {
     return handle(async () => {
       const auth = await requireAuth();
       if (auth instanceof NextResponse) return auth;
-      const sale = await SaleService.getById(id);
-      return ok({ sale });
+      return ok({ sale: await SaleService.getById(id) });
     });
   },
 
@@ -32,9 +38,7 @@ export const SaleController = {
     return handle(async () => {
       const auth = await requireRole('admin', 'manager', 'kasir');
       if (auth instanceof NextResponse) return auth;
-      const body = await req.json();
-      const sale = await SaleService.create(body, auth.id);
-      return created({ sale });
+      return created({ sale: await SaleService.create(await req.json(), auth.id) });
     });
   },
 
@@ -42,26 +46,22 @@ export const SaleController = {
     return handle(async () => {
       const auth = await requireRole('admin', 'manager', 'kasir');
       if (auth instanceof NextResponse) return auth;
-      const body = await req.json();
-      const sale = await SaleService.update(id, body);
-      return ok({ sale });
+      return ok({ sale: await SaleService.update(id, await req.json()) });
     });
   },
+
 };
 
-
+// ── Purchase ──────────────────────────────────────────────────────────────────
 
 export const PurchaseController = {
+
   async list(req: NextRequest): Promise<NextResponse> {
     return handle(async () => {
       const auth = await requireAuth();
       if (auth instanceof NextResponse) return auth;
       const sp = req.nextUrl.searchParams;
-      const purchases = await PurchaseService.getAll(
-        sp.get('search') ?? '',
-        sp.get('status') ?? ''
-      );
-      return ok({ purchases });
+      return ok({ purchases: await PurchaseService.getAll(sp.get('search') ?? '', sp.get('status') ?? '') });
     });
   },
 
@@ -69,26 +69,22 @@ export const PurchaseController = {
     return handle(async () => {
       const auth = await requireRole('admin', 'manager', 'gudang');
       if (auth instanceof NextResponse) return auth;
-      const body     = await req.json();
-      const purchase = await PurchaseService.create(body, auth.id);
-      return created({ purchase });
+      return created({ purchase: await PurchaseService.create(await req.json(), auth.id) });
     });
   },
+
 };
 
-import { StockService } from '@/server/services/stock.service';
+// ── Stock ─────────────────────────────────────────────────────────────────────
 
 export const StockController = {
+
   async list(req: NextRequest): Promise<NextResponse> {
     return handle(async () => {
       const auth = await requireAuth();
       if (auth instanceof NextResponse) return auth;
-      const sp        = req.nextUrl.searchParams;
-      const movements = await StockService.getAll(
-        sp.get('type')       ?? '',
-        sp.get('product_id') ?? ''
-      );
-      return ok({ movements });
+      const sp = req.nextUrl.searchParams;
+      return ok({ movements: await StockService.getAll(sp.get('type') ?? '', sp.get('product_id') ?? '') });
     });
   },
 
@@ -96,61 +92,61 @@ export const StockController = {
     return handle(async () => {
       const auth = await requireRole('admin', 'manager', 'gudang');
       if (auth instanceof NextResponse) return auth;
-      const body     = await req.json();
-      const movement = await StockService.recordMovement(body, auth.id);
-      return created({ movement });
+      return created({ movement: await StockService.recordMovement(await req.json(), auth.id) });
     });
   },
+
 };
 
-import { ReportService } from '@/server/services/report.service';
+// ── Report ────────────────────────────────────────────────────────────────────
 
 export const ReportController = {
+
   async get(req: NextRequest): Promise<NextResponse> {
     return handle(async () => {
       const auth = await requireRole('admin', 'manager');
       if (auth instanceof NextResponse) return auth;
-      const sp   = req.nextUrl.searchParams;
+      const sp = req.nextUrl.searchParams;
       const data = await ReportService.getReport({
-        type: (sp.get('type') ?? 'monthly') as import('@/types').ReportType,
+        type: (sp.get('type') ?? 'monthly') as ReportType,
         from: sp.get('from') ?? '',
-        to:   sp.get('to')   ?? '',
+        to  : sp.get('to')   ?? '',
       });
       return ok({ data });
     });
   },
+
 };
 
-import { CategoryService } from '@/server/services/misc.service';
+// ── Category ──────────────────────────────────────────────────────────────────
 
 export const CategoryController = {
+
   async list(): Promise<NextResponse> {
     return handle(async () => {
       const auth = await requireAuth();
       if (auth instanceof NextResponse) return auth;
-      const categories = await CategoryService.getAll();
-      return ok({ categories });
+      return ok({ categories: await CategoryService.getAll() });
     });
   },
+
   async create(req: NextRequest): Promise<NextResponse> {
     return handle(async () => {
       const auth = await requireRole('admin', 'manager');
       if (auth instanceof NextResponse) return auth;
-      const body     = await req.json();
-      const category = await CategoryService.create(body);
-      return created({ category });
+      return created({ category: await CategoryService.create(await req.json()) });
     });
   },
+
   async update(req: NextRequest, id: string): Promise<NextResponse> {
     return handle(async () => {
       const auth = await requireRole('admin', 'manager');
       if (auth instanceof NextResponse) return auth;
-      const body     = await req.json();
-      const category = await CategoryService.update(id, body);
-      return ok({ category });
+      return ok({ category: await CategoryService.update(id, await req.json()) });
     });
   },
-  async delete(req: NextRequest, id: string): Promise<NextResponse> {
+
+  async delete(_req: NextRequest, id: string): Promise<NextResponse> {
     return handle(async () => {
       const auth = await requireRole('admin', 'manager');
       if (auth instanceof NextResponse) return auth;
@@ -158,38 +154,38 @@ export const CategoryController = {
       return ok({ message: 'Kategori dihapus' });
     });
   },
+
 };
 
-import { SupplierService } from '@/server/services/misc.service';
+// ── Supplier ──────────────────────────────────────────────────────────────────
 
 export const SupplierController = {
+
   async list(req: NextRequest): Promise<NextResponse> {
     return handle(async () => {
       const auth = await requireAuth();
       if (auth instanceof NextResponse) return auth;
-      const suppliers = await SupplierService.getAll(req.nextUrl.searchParams.get('search') ?? '');
-      return ok({ suppliers });
+      return ok({ suppliers: await SupplierService.getAll(req.nextUrl.searchParams.get('search') ?? '') });
     });
   },
+
   async create(req: NextRequest): Promise<NextResponse> {
     return handle(async () => {
       const auth = await requireRole('admin', 'manager');
       if (auth instanceof NextResponse) return auth;
-      const body     = await req.json();
-      const supplier = await SupplierService.create(body);
-      return created({ supplier });
+      return created({ supplier: await SupplierService.create(await req.json()) });
     });
   },
+
   async update(req: NextRequest, id: string): Promise<NextResponse> {
     return handle(async () => {
       const auth = await requireRole('admin', 'manager');
       if (auth instanceof NextResponse) return auth;
-      const body     = await req.json();
-      const supplier = await SupplierService.update(id, body);
-      return ok({ supplier });
+      return ok({ supplier: await SupplierService.update(id, await req.json()) });
     });
   },
-  async delete(req: NextRequest, id: string): Promise<NextResponse> {
+
+  async delete(_req: NextRequest, id: string): Promise<NextResponse> {
     return handle(async () => {
       const auth = await requireRole('admin', 'manager');
       if (auth instanceof NextResponse) return auth;
@@ -197,42 +193,39 @@ export const SupplierController = {
       return ok({ message: 'Supplier dinonaktifkan' });
     });
   },
+
 };
 
-import { CustomerService } from '@/server/services/misc.service';
+// ── Customer ──────────────────────────────────────────────────────────────────
 
 export const CustomerController = {
+
   async list(req: NextRequest): Promise<NextResponse> {
     return handle(async () => {
       const auth = await requireAuth();
       if (auth instanceof NextResponse) return auth;
-      const sp        = req.nextUrl.searchParams;
-      const customers = await CustomerService.getAll(
-        sp.get('search') ?? '',
-        sp.get('type')   ?? ''
-      );
-      return ok({ customers });
+      const sp = req.nextUrl.searchParams;
+      return ok({ customers: await CustomerService.getAll(sp.get('search') ?? '', sp.get('type') ?? '') });
     });
   },
+
   async create(req: NextRequest): Promise<NextResponse> {
     return handle(async () => {
       const auth = await requireRole('admin', 'manager', 'kasir');
       if (auth instanceof NextResponse) return auth;
-      const body     = await req.json();
-      const customer = await CustomerService.create(body);
-      return created({ customer });
+      return created({ customer: await CustomerService.create(await req.json()) });
     });
   },
+
   async update(req: NextRequest, id: string): Promise<NextResponse> {
     return handle(async () => {
       const auth = await requireRole('admin', 'manager', 'kasir');
       if (auth instanceof NextResponse) return auth;
-      const body     = await req.json();
-      const customer = await CustomerService.update(id, body);
-      return ok({ customer });
+      return ok({ customer: await CustomerService.update(id, await req.json()) });
     });
   },
-  async delete(req: NextRequest, id: string): Promise<NextResponse> {
+
+  async delete(_req: NextRequest, id: string): Promise<NextResponse> {
     return handle(async () => {
       const auth = await requireRole('admin', 'manager');
       if (auth instanceof NextResponse) return auth;
@@ -240,4 +233,5 @@ export const CustomerController = {
       return ok({ message: 'Pelanggan dinonaktifkan' });
     });
   },
+
 };

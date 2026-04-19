@@ -1,11 +1,8 @@
-// ─────────────────────────────────────────────
-// server/services/purchase.service.ts
-// ─────────────────────────────────────────────
 import { PurchaseRepository } from '@/server/repositories/purchase.repository';
-import { ProductRepository } from '@/server/repositories/product.repository';
-import { StockRepository } from '@/server/repositories/stock.repository';
+import { ProductRepository }  from '@/server/repositories/product.repository';
+import { StockRepository }    from '@/server/repositories/stock.repository';
 import { generateInvoiceNumber } from '@/lib/auth';
-import type { Purchase, CreatePurchaseDto } from '@/types';
+import type { Purchase, CreatePurchaseDto, PurchaseItem } from '@/types';
 
 export const PurchaseService = {
 
@@ -21,23 +18,21 @@ export const PurchaseService = {
   },
 
   async create(dto: CreatePurchaseDto, userId: string): Promise<{ id: string; purchase_number: string }> {
-    if (!dto.items || dto.items.length === 0) {
-      throw new Error('Tambahkan minimal 1 produk');
-    }
+    if (!dto.items?.length) throw new Error('Tambahkan minimal 1 produk');
 
-    const subtotal = dto.items.reduce((s, i) => s + i.quantity * i.unit_price, 0);
+    const subtotal      = dto.items.reduce((sum, i) => sum + i.quantity * i.unit_price, 0);
     const purchaseNumber = generateInvoiceNumber('PO');
 
     return PurchaseRepository.createWithItems(
       {
         purchase_number: purchaseNumber,
-        supplier_id: dto.supplier_id,
+        supplier_id    : dto.supplier_id,
         subtotal,
-        notes: dto.notes,
-        created_by: userId,
+        notes          : dto.notes,
+        created_by     : userId,
       },
       dto.items,
-      async (item, purchaseId) => {
+      async (item: PurchaseItem, purchaseId: string) => {
         const product = await ProductRepository.findByIdForUpdate(item.product_id);
         if (!product) return;
 
@@ -46,17 +41,17 @@ export const PurchaseService = {
         await ProductRepository.updateStock(item.product_id, qtyAfter);
         await ProductRepository.updatePurchasePrice(item.product_id, item.unit_price);
         await StockRepository.create({
-          product_id: item.product_id,
-          movement_type: 'in',
-          quantity: item.quantity,
+          product_id    : item.product_id,
+          movement_type : 'in',
+          quantity      : item.quantity,
           quantity_before: product.stock_quantity,
-          quantity_after: qtyAfter,
-          reference_type: 'purchase',
-          reference_id: purchaseId,
-          notes: `PO: ${purchaseNumber}`,
-          created_by: userId,
+          quantity_after : qtyAfter,
+          reference_type : 'purchase',
+          reference_id   : purchaseId,
+          notes          : `PO: ${purchaseNumber}`,
+          created_by     : userId,
         });
-      }
+      },
     );
   },
 

@@ -1,4 +1,3 @@
-export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 import { UserService } from '@/server/services/user.service';
 import { ok, created, fail, requireRole, handle } from './base.controller';

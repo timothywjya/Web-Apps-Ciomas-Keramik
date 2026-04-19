@@ -1,6 +1,3 @@
-// ─────────────────────────────────────────────
-// server/services/stock.service.ts
-// ─────────────────────────────────────────────
 import { StockRepository } from '@/server/repositories/stock.repository';
 import { ProductRepository } from '@/server/repositories/product.repository';
 import type { StockMovement, CreateStockMovementDto } from '@/types';

@@ -1,73 +1,65 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const PUBLIC_PATHS = ['/login', '/api/auth/login'];
+const PUBLIC_PATHS  = ['/login', '/api/auth/login'];
+const STATIC_PREFIX = ['/_next', '/favicon', '/icons', '/images'];
+const COOKIE_NAME   = 'auth_token';
 
 /**
- * Decode JWT payload tanpa verifikasi signature.
- * Verifikasi signature dilakukan di API routes (Node.js runtime).
- * Middleware hanya cek keberadaan & expiry token — aman untuk Edge Runtime.
+ * Decode JWT payload without signature verification.
+ *
+ * Security note:
+ * Middleware runs on Edge Runtime — Node.js crypto (jsonwebtoken) is unavailable here.
+ * Full signature verification is done in every API route via getSession() (Node.js runtime).
+ * Here we only check presence + expiry to guard page navigation and redirect early.
  */
-function decodeJwtPayload(token: string): { exp?: number; role?: string } | null {
+function decodeJwtPayload(token: string): { exp?: number } | null {
   try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    // Base64url decode the payload (part index 1)
-    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const json = atob(base64);
-    return JSON.parse(json);
+    const [, payload] = token.split('.');
+    if (!payload) return null;
+    const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
+    return JSON.parse(json) as { exp?: number };
   } catch {
     return null;
   }
 }
 
-export function middleware(req: NextRequest) {
+function isExpired(exp?: number): boolean {
+  return !!exp && Date.now() / 1000 > exp;
+}
+
+function redirectToLogin(req: NextRequest): NextResponse {
+  const res = NextResponse.redirect(new URL('/login', req.url));
+  res.cookies.delete(COOKIE_NAME);
+  return res;
+}
+
+export function middleware(req: NextRequest): NextResponse {
   const { pathname } = req.nextUrl;
+  const isApi = pathname.startsWith('/api/');
 
-  // Allow public paths
-  if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) {
-    return NextResponse.next();
-  }
+  if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) return NextResponse.next();
+  if (STATIC_PREFIX.some(p => pathname.startsWith(p))) return NextResponse.next();
 
-  // Allow static files & Next.js internals
-  if (
-    pathname.startsWith('/_next') ||
-    pathname.startsWith('/favicon') ||
-    pathname.startsWith('/icons') ||
-    pathname.startsWith('/images')
-  ) {
-    return NextResponse.next();
-  }
-
-  // Check auth token
-  const token = req.cookies.get('auth_token')?.value;
+  const token = req.cookies.get(COOKIE_NAME)?.value;
 
   if (!token) {
-    if (pathname.startsWith('/api/')) {
-      return NextResponse.json({ error: 'Unauthorized — token tidak ditemukan' }, { status: 401 });
-    }
-    return NextResponse.redirect(new URL('/login', req.url));
+    return isApi
+      ? NextResponse.json({ success: false, error: 'Token tidak ditemukan' }, { status: 401 })
+      : redirectToLogin(req);
   }
 
-  // Decode payload (edge-safe, no crypto)
   const payload = decodeJwtPayload(token);
 
   if (!payload) {
-    if (pathname.startsWith('/api/')) {
-      return NextResponse.json({ error: 'Token tidak valid' }, { status: 401 });
-    }
-    const res = NextResponse.redirect(new URL('/login', req.url));
-    res.cookies.delete('auth_token');
-    return res;
+    return isApi
+      ? NextResponse.json({ success: false, error: 'Token tidak valid' }, { status: 401 })
+      : redirectToLogin(req);
   }
 
-  // Check expiry
-  if (payload.exp && Date.now() / 1000 > payload.exp) {
-    if (pathname.startsWith('/api/')) {
-      return NextResponse.json({ error: 'Token sudah kadaluarsa, silakan login ulang' }, { status: 401 });
-    }
-    const res = NextResponse.redirect(new URL('/login', req.url));
-    res.cookies.delete('auth_token');
-    return res;
+  if (isExpired(payload.exp)) {
+    return isApi
+      ? NextResponse.json({ success: false, error: 'Sesi telah berakhir, silakan login kembali' }, { status: 401 })
+      : redirectToLogin(req);
   }
 
   return NextResponse.next();

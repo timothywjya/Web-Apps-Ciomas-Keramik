@@ -1,6 +1,3 @@
-// ─────────────────────────────────────────────
-// server/services/report.service.ts
-// ─────────────────────────────────────────────
 import { ReportRepository } from '@/server/repositories/report.repository';
 import type { ReportFilter } from '@/types';
 

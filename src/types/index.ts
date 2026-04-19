@@ -1,6 +1,4 @@
-// ─────────────────────────────────────────────
 // types/index.ts  — Shared domain types
-// ─────────────────────────────────────────────
 
 export interface ApiResponse<T = unknown> {
   success: boolean;

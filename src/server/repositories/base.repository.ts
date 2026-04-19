@@ -1,9 +1,9 @@
-import { QueryResult } from 'pg';
 import pool from '@/lib/db';
+import type { PoolClient, QueryResult } from 'pg';
 
 export async function dbQuery<T = Record<string, unknown>>(
-  sql: string,
-  params: unknown[] = []
+  sql   : string,
+  params: unknown[] = [],
 ): Promise<T[]> {
   const client = await pool.connect();
   try {
@@ -15,15 +15,15 @@ export async function dbQuery<T = Record<string, unknown>>(
 }
 
 export async function dbQueryOne<T = Record<string, unknown>>(
-  sql: string,
-  params: unknown[] = []
+  sql   : string,
+  params: unknown[] = [],
 ): Promise<T | null> {
   const rows = await dbQuery<T>(sql, params);
   return rows[0] ?? null;
 }
 
 export async function dbTransaction<T>(
-  fn: (client: import('pg').PoolClient) => Promise<T>
+  fn: (client: PoolClient) => Promise<T>,
 ): Promise<T> {
   const client = await pool.connect();
   try {
