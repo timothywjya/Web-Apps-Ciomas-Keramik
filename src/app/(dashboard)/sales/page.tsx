@@ -149,7 +149,13 @@ export default function SalesPage() {
                 <tr><td colSpan={9} style={{ textAlign: 'center', padding: '40px' }}><div className="loading-spinner" style={{ margin: '0 auto' }} /></td></tr>
               ) : sales.map(s => (
                 <tr key={s.id}>
-                  <td style={{ fontWeight: 600, color: '#1c1917', fontSize: '0.82rem' }}>{s.invoice_number}</td>
+                  <td style={{ fontWeight: 600, color: '#1c1917', fontSize: '0.82rem' }}>
+                    {s.invoice_number}
+                    <button onClick={e => { e.stopPropagation(); window.open(`/api/pdf/sale/${s.id}`, '_blank'); }}
+                      style={{ marginLeft: '8px', background: 'none', border: '1px solid #e7e5e4', borderRadius: '5px', padding: '2px 6px', fontSize: '0.68rem', cursor: 'pointer', color: '#57534e' }}>
+                      📄
+                    </button>
+                  </td>
                   <td>{s.customer_name || <span style={{ color: '#a8a29e' }}>Walk-in</span>}</td>
                   <td style={{ fontSize: '0.8rem', color: '#78716c' }}>{s.salesperson_name || '—'}</td>
                   <td style={{ fontWeight: 700 }}>{formatRp(s.total_amount)}</td>

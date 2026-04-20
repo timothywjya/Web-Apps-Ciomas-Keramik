@@ -110,7 +110,13 @@ export default function PurchasesPage() {
               <tr><td colSpan={6} style={{ textAlign: 'center', padding: '40px' }}><div className="loading-spinner" style={{ margin: '0 auto' }} /></td></tr>
             ) : purchases.map(p => (
               <tr key={p.id}>
-                <td style={{ fontWeight: 600, color: '#1c1917', fontSize: '0.82rem' }}>{p.purchase_number}</td>
+                <td style={{ fontWeight: 600, color: '#1c1917', fontSize: '0.82rem' }}>
+                    {p.purchase_number}
+                    <button onClick={e => { e.stopPropagation(); window.open(`/api/pdf/purchase/${p.id}`, '_blank'); }}
+                      style={{ marginLeft: '8px', background: 'none', border: '1px solid #e7e5e4', borderRadius: '5px', padding: '2px 6px', fontSize: '0.68rem', cursor: 'pointer', color: '#57534e' }}>
+                      📄
+                    </button>
+                  </td>
                 <td>{p.supplier_name || <span style={{ color: '#a8a29e' }}>— Tanpa Supplier —</span>}</td>
                 <td style={{ fontWeight: 700 }}>{formatRp(p.total_amount)}</td>
                 <td>
