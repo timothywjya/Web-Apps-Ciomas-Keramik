@@ -2,12 +2,20 @@ import { dbQuery, dbQueryOne, dbTransaction } from './base.repository';
 import type { PoolClient } from 'pg';
 
 // =============================================================================
-// Perspektif akuntansi Ciomas Keramik:
-//   Piutang = Customer/Kontraktor berhutang ke Ciomas  (dari Sales Invoice)
-//   Hutang  = Ciomas berhutang ke Supplier             (dari Purchase Order)
+// Perspektif Akuntansi Ciomas Keramik
+//
+//   Piutang (receivables)
+//     = Uang yang HARUS DITERIMA dari Customer / Kontraktor
+//     Sumber: Sales Invoice (kredit / tempo) ATAU entri manual (cash DP, dll.)
+//
+//   Hutang (payables)
+//     = Kewajiban BAYAR ke Supplier
+//     Sumber: Purchase Order ATAU rekapan pribadi tanpa PO di sistem
 // =============================================================================
 
-// ── Shared types ──────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared Types
+// ─────────────────────────────────────────────────────────────────────────────
 
 export type LedgerStatus = 'outstanding' | 'partial' | 'paid' | 'overdue';
 
@@ -22,11 +30,15 @@ export type LedgerSummary = {
   count            : number;
 };
 
-// ── Piutang types ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Piutang Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type PaymentType = 'kredit' | 'tempo' | 'dp' | 'cash';
 
 export type Receivable = {
   id             : string;
-  sale_id        : string;
+  sale_id       ?: string;          // NULL untuk piutang manual
   invoice_number : string;
   invoice_date   : string;
   due_date      ?: string;
@@ -34,10 +46,11 @@ export type Receivable = {
   customer_name  : string;
   customer_phone?: string;
   customer_type ?: string;
+  payment_type   : PaymentType;
   total_amount   : number;
   discount_amount: number;
   paid_amount    : number;
-  outstanding    : number;
+  outstanding    : number;          // GENERATED: total - discount - paid
   status         : LedgerStatus;
   notes         ?: string;
   created_at     : string;
@@ -50,26 +63,54 @@ export type ReceivablePayment = {
   payment_date  : string;
   amount        : number;
   payment_method: string;
+  bank_name    ?: string;
   reference_no ?: string;
   notes        ?: string;
   created_at    : string;
 };
 
-// ── Hutang types ──────────────────────────────────────────────────────────────
+export type CreateReceivableInput = {
+  sale_id        ?: string;
+  invoice_number  : string;
+  invoice_date    : string;
+  customer_id    ?: string;
+  due_date       ?: string;
+  payment_type    : PaymentType;
+  total_amount    : number;
+  discount_amount : number;
+  notes          ?: string;
+  created_by      : string;
+};
+
+export type AddReceivablePaymentInput = {
+  receivable_id : string;
+  amount        : number;
+  payment_date  : string;
+  payment_method: string;
+  bank_name    ?: string;
+  reference_no ?: string;
+  notes        ?: string;
+  created_by    : string;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Hutang Types
+// ─────────────────────────────────────────────────────────────────────────────
 
 export type Payable = {
   id             : string;
-  purchase_id    : string;
+  purchase_id   ?: string;          // NULL untuk hutang manual
   po_number      : string;
   po_date        : string;
   due_date      ?: string;
   supplier_id   ?: string;
   supplier_name  : string;
   supplier_phone?: string;
+  ref_number    ?: string;
   total_amount   : number;
   discount_amount: number;
   paid_amount    : number;
-  outstanding    : number;
+  outstanding    : number;          // GENERATED: total - discount - paid
   status         : LedgerStatus;
   notes         ?: string;
   created_at     : string;
@@ -82,12 +123,39 @@ export type PayablePayment = {
   payment_date  : string;
   amount        : number;
   payment_method: string;
+  bank_name    ?: string;
   reference_no ?: string;
   notes        ?: string;
   created_at    : string;
 };
 
-// ── Private helpers ───────────────────────────────────────────────────────────
+export type CreatePayableInput = {
+  purchase_id    ?: string;
+  po_number       : string;
+  po_date         : string;
+  supplier_id    ?: string;
+  due_date       ?: string;
+  ref_number     ?: string;
+  total_amount    : number;
+  discount_amount : number;
+  notes          ?: string;
+  created_by      : string;
+};
+
+export type AddPayablePaymentInput = {
+  payable_id    : string;
+  amount        : number;
+  payment_date  : string;
+  payment_method: string;
+  bank_name    ?: string;
+  reference_no ?: string;
+  notes        ?: string;
+  created_by    : string;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Private Helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
 function computeStatus(paid: number, total: number, discount: number): LedgerStatus {
   const net = total - discount;
@@ -96,30 +164,39 @@ function computeStatus(paid: number, total: number, discount: number): LedgerSta
   return 'partial';
 }
 
-async function syncSalePaidAmount(client: PoolClient, saleId: string, paidAmount: number): Promise<void> {
+async function syncSalePaidAmount(
+  client : PoolClient,
+  saleId : string,
+  newPaid: number,
+): Promise<void> {
   await client.query(
     `UPDATE sales
      SET    paid_amount    = $1,
             payment_status = CASE
-              WHEN $1 <= 0                        THEN 'unpaid'
-              WHEN $1 >= total_amount - discount_amount THEN 'paid'
+              WHEN $1 <= 0                              THEN 'unpaid'
+              WHEN $1 >= (total_amount - discount_amount) THEN 'paid'
               ELSE 'partial'
             END,
             updated_at = NOW()
      WHERE  id = $2`,
-    [paidAmount, saleId],
+    [newPaid, saleId],
   );
 }
 
-async function syncPurchasePaidAmount(client: PoolClient, purchaseId: string, paidAmount: number): Promise<void> {
+async function syncPurchasePaidAmount(
+  client     : PoolClient,
+  purchaseId : string,
+  newPaid    : number,
+): Promise<void> {
   await client.query(
     `UPDATE purchases SET paid_amount = $1, updated_at = NOW() WHERE id = $2`,
-    [paidAmount, purchaseId],
+    [newPaid, purchaseId],
   );
 }
 
-// ── Piutang Repository ────────────────────────────────────────────────────────
-// Tagihan Ciomas ke Customer / Kontraktor atas Invoice Penjualan
+// ─────────────────────────────────────────────────────────────────────────────
+// Piutang Repository
+// ─────────────────────────────────────────────────────────────────────────────
 
 const RECV_SELECT = `
   SELECT
@@ -139,9 +216,7 @@ export const ReceivableRepository = {
 
     if (filter.search) {
       params.push(`%${filter.search}%`);
-      where.push(
-        `(r.invoice_number ILIKE $${params.length} OR c.name ILIKE $${params.length})`,
-      );
+      where.push(`(r.invoice_number ILIKE $${params.length} OR c.name ILIKE $${params.length})`);
     }
     if (filter.status) {
       params.push(filter.status);
@@ -149,10 +224,7 @@ export const ReceivableRepository = {
     }
 
     return dbQuery<Receivable>(
-      `${RECV_SELECT}
-       WHERE  ${where.join(' AND ')}
-       ORDER  BY r.created_at DESC
-       LIMIT  500`,
+      `${RECV_SELECT} WHERE ${where.join(' AND ')} ORDER BY r.created_at DESC LIMIT 500`,
       params,
     );
   },
@@ -174,68 +246,59 @@ export const ReceivableRepository = {
     );
   },
 
-  async create(data: {
-    sale_id        : string;
-    invoice_number : string;
-    invoice_date   : string;
-    customer_id   ?: string;
-    due_date      ?: string;
-    total_amount   : number;
-    discount_amount: number;
-    notes         ?: string;
-    created_by     : string;
-  }): Promise<Receivable> {
+  async create(data: CreateReceivableInput): Promise<Receivable> {
     const [r] = await dbQuery<Receivable>(
       `INSERT INTO receivables
          (sale_id, invoice_number, invoice_date, customer_id, due_date,
-          total_amount, discount_amount, notes, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+          payment_type, total_amount, discount_amount, notes, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING *`,
       [
-        data.sale_id, data.invoice_number, data.invoice_date,
-        data.customer_id ?? null, data.due_date ?? null,
-        data.total_amount, data.discount_amount,
-        data.notes ?? null, data.created_by,
+        data.sale_id       ?? null,
+        data.invoice_number,
+        data.invoice_date,
+        data.customer_id   ?? null,
+        data.due_date      ?? null,
+        data.payment_type,
+        data.total_amount,
+        data.discount_amount,
+        data.notes         ?? null,
+        data.created_by,
       ],
     );
     return r;
   },
 
-  async addPayment(data: {
-    receivable_id : string;
-    amount        : number;
-    payment_date  : string;
-    payment_method: string;
-    reference_no ?: string;
-    notes        ?: string;
-    created_by    : string;
-  }): Promise<{ payment: ReceivablePayment; receivable: Receivable }> {
+  async addPayment(
+    data: AddReceivablePaymentInput,
+  ): Promise<{ payment: ReceivablePayment; receivable: Receivable }> {
     return dbTransaction(async (client) => {
-      // Row lock prevents duplicate concurrent payments
       const { rows: [recv] } = await client.query<Receivable>(
         `SELECT * FROM receivables WHERE id = $1 FOR UPDATE`,
         [data.receivable_id],
       );
-      if (!recv)              throw new Error('Piutang tidak ditemukan');
+      if (!recv)                  throw new Error('Piutang tidak ditemukan');
       if (recv.status === 'paid') throw new Error('Piutang sudah lunas');
+      if (data.amount <= 0)       throw new Error('Jumlah pembayaran harus lebih dari 0');
 
-      const newPaid  = Number(recv.paid_amount) + data.amount;
-      const net      = Number(recv.total_amount) - Number(recv.discount_amount);
-
-      if (data.amount <= 0)   throw new Error('Jumlah pembayaran harus lebih dari 0');
-      if (newPaid > net)      throw new Error(`Jumlah melebihi sisa tagihan (${net.toLocaleString('id-ID')})`);
+      const newPaid = Number(recv.paid_amount) + data.amount;
+      const net     = Number(recv.total_amount) - Number(recv.discount_amount);
+      if (newPaid > net) {
+        throw new Error(`Jumlah melebihi sisa tagihan (${net.toLocaleString('id-ID')})`);
+      }
 
       const newStatus = computeStatus(newPaid, Number(recv.total_amount), Number(recv.discount_amount));
 
       const { rows: [payment] } = await client.query<ReceivablePayment>(
         `INSERT INTO receivable_payments
-           (receivable_id, payment_date, amount, payment_method, reference_no, notes, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
+           (receivable_id, payment_date, amount, payment_method,
+            bank_name, reference_no, notes, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
          RETURNING *`,
         [
-          data.receivable_id, data.payment_date, data.amount,
-          data.payment_method, data.reference_no ?? null,
-          data.notes ?? null, data.created_by,
+          data.receivable_id, data.payment_date, data.amount, data.payment_method,
+          data.bank_name ?? null, data.reference_no ?? null,
+          data.notes     ?? null, data.created_by,
         ],
       );
 
@@ -247,7 +310,9 @@ export const ReceivableRepository = {
         [newPaid, newStatus, data.receivable_id],
       );
 
-      await syncSalePaidAmount(client, recv.sale_id, newPaid);
+      if (recv.sale_id) {
+        await syncSalePaidAmount(client, recv.sale_id, newPaid);
+      }
 
       return { payment, receivable: updated };
     });
@@ -255,11 +320,13 @@ export const ReceivableRepository = {
 
   async updateDiscount(id: string, discountAmount: number): Promise<Receivable> {
     const existing = await this.findById(id);
-    if (!existing) throw new Error('Piutang tidak ditemukan');
+    if (!existing)                  throw new Error('Piutang tidak ditemukan');
     if (existing.status === 'paid') throw new Error('Tidak bisa mengubah diskon piutang yang sudah lunas');
 
     const newStatus = computeStatus(
-      Number(existing.paid_amount), Number(existing.total_amount), discountAmount,
+      Number(existing.paid_amount),
+      Number(existing.total_amount),
+      discountAmount,
     );
 
     const [updated] = await dbQuery<Receivable>(
@@ -279,12 +346,11 @@ export const ReceivableRepository = {
       count            : string;
     }>(`
       SELECT
-        COALESCE(SUM(outstanding), 0)                                        AS total_outstanding,
-        COALESCE(SUM(CASE WHEN due_date < CURRENT_DATE THEN outstanding
-                          ELSE 0 END), 0)                                    AS total_overdue,
-        COUNT(*)                                                             AS count
-      FROM   receivables
-      WHERE  status != 'paid'
+        COALESCE(SUM(outstanding), 0)                                           AS total_outstanding,
+        COALESCE(SUM(CASE WHEN due_date < CURRENT_DATE THEN outstanding ELSE 0 END), 0) AS total_overdue,
+        COUNT(*)                                                                AS count
+      FROM  receivables
+      WHERE status != 'paid'
     `);
     return {
       total_outstanding: Number(row.total_outstanding),
@@ -295,9 +361,9 @@ export const ReceivableRepository = {
 
 };
 
-// ── Hutang Repository ─────────────────────────────────────────────────────────
-// Kewajiban Ciomas ke Supplier atas Purchase Order
-// Referensi PO Number wajib disimpan untuk rekonsiliasi
+// ─────────────────────────────────────────────────────────────────────────────
+// Hutang Repository
+// ─────────────────────────────────────────────────────────────────────────────
 
 const PAY_SELECT = `
   SELECT
@@ -316,9 +382,7 @@ export const PayableRepository = {
 
     if (filter.search) {
       params.push(`%${filter.search}%`);
-      where.push(
-        `(p.po_number ILIKE $${params.length} OR s.name ILIKE $${params.length})`,
-      );
+      where.push(`(p.po_number ILIKE $${params.length} OR s.name ILIKE $${params.length})`);
     }
     if (filter.status) {
       params.push(filter.status);
@@ -326,10 +390,7 @@ export const PayableRepository = {
     }
 
     return dbQuery<Payable>(
-      `${PAY_SELECT}
-       WHERE  ${where.join(' AND ')}
-       ORDER  BY p.created_at DESC
-       LIMIT  500`,
+      `${PAY_SELECT} WHERE ${where.join(' AND ')} ORDER BY p.created_at DESC LIMIT 500`,
       params,
     );
   },
@@ -351,67 +412,59 @@ export const PayableRepository = {
     );
   },
 
-  async create(data: {
-    purchase_id    : string;
-    po_number      : string;
-    po_date        : string;
-    supplier_id   ?: string;
-    due_date      ?: string;
-    total_amount   : number;
-    discount_amount: number;
-    notes         ?: string;
-    created_by     : string;
-  }): Promise<Payable> {
+  async create(data: CreatePayableInput): Promise<Payable> {
     const [p] = await dbQuery<Payable>(
       `INSERT INTO payables
          (purchase_id, po_number, po_date, supplier_id, due_date,
-          total_amount, discount_amount, notes, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+          ref_number, total_amount, discount_amount, notes, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING *`,
       [
-        data.purchase_id, data.po_number, data.po_date,
-        data.supplier_id ?? null, data.due_date ?? null,
-        data.total_amount, data.discount_amount,
-        data.notes ?? null, data.created_by,
+        data.purchase_id  ?? null,
+        data.po_number,
+        data.po_date,
+        data.supplier_id  ?? null,
+        data.due_date     ?? null,
+        data.ref_number   ?? null,
+        data.total_amount,
+        data.discount_amount,
+        data.notes        ?? null,
+        data.created_by,
       ],
     );
     return p;
   },
 
-  async addPayment(data: {
-    payable_id    : string;
-    amount        : number;
-    payment_date  : string;
-    payment_method: string;
-    reference_no ?: string;
-    notes        ?: string;
-    created_by    : string;
-  }): Promise<{ payment: PayablePayment; payable: Payable }> {
+  async addPayment(
+    data: AddPayablePaymentInput,
+  ): Promise<{ payment: PayablePayment; payable: Payable }> {
     return dbTransaction(async (client) => {
       const { rows: [pay] } = await client.query<Payable>(
         `SELECT * FROM payables WHERE id = $1 FOR UPDATE`,
         [data.payable_id],
       );
-      if (!pay)               throw new Error('Hutang tidak ditemukan');
-      if (pay.status === 'paid') throw new Error('Hutang sudah lunas');
+      if (!pay)                   throw new Error('Hutang tidak ditemukan');
+      if (pay.status === 'paid')  throw new Error('Hutang sudah lunas');
+      if (data.amount <= 0)       throw new Error('Jumlah pembayaran harus lebih dari 0');
 
       const newPaid = Number(pay.paid_amount) + data.amount;
       const net     = Number(pay.total_amount) - Number(pay.discount_amount);
-
-      if (data.amount <= 0)   throw new Error('Jumlah pembayaran harus lebih dari 0');
-      if (newPaid > net)      throw new Error(`Jumlah melebihi sisa hutang (${net.toLocaleString('id-ID')})`);
+      if (newPaid > net) {
+        throw new Error(`Jumlah melebihi sisa hutang (${net.toLocaleString('id-ID')})`);
+      }
 
       const newStatus = computeStatus(newPaid, Number(pay.total_amount), Number(pay.discount_amount));
 
       const { rows: [payment] } = await client.query<PayablePayment>(
         `INSERT INTO payable_payments
-           (payable_id, payment_date, amount, payment_method, reference_no, notes, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
+           (payable_id, payment_date, amount, payment_method,
+            bank_name, reference_no, notes, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
          RETURNING *`,
         [
-          data.payable_id, data.payment_date, data.amount,
-          data.payment_method, data.reference_no ?? null,
-          data.notes ?? null, data.created_by,
+          data.payable_id, data.payment_date, data.amount, data.payment_method,
+          data.bank_name ?? null, data.reference_no ?? null,
+          data.notes     ?? null, data.created_by,
         ],
       );
 
@@ -423,7 +476,9 @@ export const PayableRepository = {
         [newPaid, newStatus, data.payable_id],
       );
 
-      await syncPurchasePaidAmount(client, pay.purchase_id, newPaid);
+      if (pay.purchase_id) {
+        await syncPurchasePaidAmount(client, pay.purchase_id, newPaid);
+      }
 
       return { payment, payable: updated };
     });
@@ -431,11 +486,13 @@ export const PayableRepository = {
 
   async updateDiscount(id: string, discountAmount: number): Promise<Payable> {
     const existing = await this.findById(id);
-    if (!existing) throw new Error('Hutang tidak ditemukan');
+    if (!existing)                  throw new Error('Hutang tidak ditemukan');
     if (existing.status === 'paid') throw new Error('Tidak bisa mengubah diskon hutang yang sudah lunas');
 
     const newStatus = computeStatus(
-      Number(existing.paid_amount), Number(existing.total_amount), discountAmount,
+      Number(existing.paid_amount),
+      Number(existing.total_amount),
+      discountAmount,
     );
 
     const [updated] = await dbQuery<Payable>(
@@ -455,12 +512,11 @@ export const PayableRepository = {
       count            : string;
     }>(`
       SELECT
-        COALESCE(SUM(outstanding), 0)                                        AS total_outstanding,
-        COALESCE(SUM(CASE WHEN due_date < CURRENT_DATE THEN outstanding
-                          ELSE 0 END), 0)                                    AS total_overdue,
-        COUNT(*)                                                             AS count
-      FROM   payables
-      WHERE  status != 'paid'
+        COALESCE(SUM(outstanding), 0)                                           AS total_outstanding,
+        COALESCE(SUM(CASE WHEN due_date < CURRENT_DATE THEN outstanding ELSE 0 END), 0) AS total_overdue,
+        COUNT(*)                                                                AS count
+      FROM  payables
+      WHERE status != 'paid'
     `);
     return {
       total_outstanding: Number(row.total_outstanding),

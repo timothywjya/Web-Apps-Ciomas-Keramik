@@ -7,9 +7,9 @@ import { generateReceivableStatementHTML } from '@/lib/pdf';
 
 type Ctx = { params: Promise<{ id: string }> };
 
-// GET  /api/receivables/:id        → detail + riwayat cicilan
-// GET  /api/receivables/:id?pdf=1  → HTML statement untuk print/PDF
-// POST /api/receivables/:id        → tambah cicilan pembayaran
+// GET   /api/receivables/:id       → detail + riwayat cicilan
+// GET   /api/receivables/:id?pdf=1 → HTML statement untuk print/PDF
+// POST  /api/receivables/:id       → tambah cicilan pembayaran
 // PATCH /api/receivables/:id       → update diskon
 
 export async function GET(req: NextRequest, { params }: Ctx) {
@@ -24,13 +24,16 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     const payments = await ReceivableRepository.findPayments(id);
 
     if (req.nextUrl.searchParams.get('pdf') === '1') {
-      const saleItems = await SaleRepository.findItemsById(receivable.sale_id);
+      const saleItems = receivable.sale_id
+        ? await SaleRepository.findItemsById(receivable.sale_id)
+        : [];
+
       const html = generateReceivableStatementHTML({
         receivable,
         payments,
         sale_items: saleItems.map(i => ({
-          product_name    : i.product_name    ?? '',
-          sku             : i.sku             ?? '',
+          product_name    : i.product_name     ?? '',
+          sku             : i.sku              ?? '',
           quantity        : i.quantity,
           unit_price      : i.unit_price,
           discount_percent: i.discount_percent,
@@ -52,14 +55,18 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     if (auth instanceof NextResponse) return auth;
 
     const { id } = await params;
-    const { amount, payment_date, payment_method, reference_no, notes } = await req.json();
+    const {
+      amount, payment_date, payment_method,
+      bank_name, reference_no, notes,
+    } = await req.json();
 
     const { payment, receivable } = await ReceivableRepository.addPayment({
       receivable_id : id,
       amount        : Number(amount),
-      payment_date  : payment_date ?? new Date().toISOString().split('T')[0],
+      payment_date  : payment_date  ?? new Date().toISOString().split('T')[0],
       payment_method: payment_method ?? 'cash',
-      reference_no,
+      bank_name     : bank_name  ?? undefined,
+      reference_no  : reference_no ?? undefined,
       notes,
       created_by    : auth.id,
     });

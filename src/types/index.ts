@@ -245,6 +245,7 @@ export interface CreateSaleDto {
   customer_id?: string;
   payment_method?: PaymentMethod;
   discount_amount?: number;
+  due_date?: string;
   notes?: string;
   items: SaleItem[];
 }

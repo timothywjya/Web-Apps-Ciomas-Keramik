@@ -2,6 +2,7 @@ import { SaleRepository }     from '@/server/repositories/sale.repository';
 import { ProductRepository }  from '@/server/repositories/product.repository';
 import { CustomerRepository } from '@/server/repositories/customer.repository';
 import { StockRepository }    from '@/server/repositories/stock.repository';
+import { ReceivableRepository } from '@/server/repositories/ledger.repository';
 import { generateInvoiceNumber } from '@/lib/auth';
 import type { Sale, CreateSaleDto, UpdateSaleDto, SaleFilter, SaleItem } from '@/types';
 
@@ -71,6 +72,27 @@ export const SaleService = {
 
     if (dto.customer_id) {
       await CustomerRepository.incrementPurchases(dto.customer_id, totalAmount);
+    }
+
+    // ── Auto-buat Piutang jika payment_method = kredit / tempo ──────────────
+    const pm = dto.payment_method ?? 'cash';
+    if (pm === 'kredit' || pm === 'tempo') {
+      // Ambil invoice_number dari sale yang baru dibuat
+      const newSale = await SaleRepository.findById(sale.id);
+      if (newSale) {
+        await ReceivableRepository.create({
+          sale_id        : sale.id,
+          invoice_number : newSale.invoice_number,
+          invoice_date   : new Date().toISOString().split('T')[0],
+          customer_id    : dto.customer_id,
+          due_date       : dto.due_date ?? undefined,
+          payment_type   : pm as 'kredit' | 'tempo',
+          total_amount   : totalAmount,
+          discount_amount: 0,
+          notes          : dto.notes,
+          created_by     : userId,
+        });
+      }
     }
 
     return sale;

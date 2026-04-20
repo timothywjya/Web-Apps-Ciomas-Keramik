@@ -9,22 +9,49 @@ interface Supplier { id: string; name: string; }
 interface Product { id: string; name: string; sku: string; purchase_price: number; stock_quantity: number; }
 interface PurchaseItem { product_id: string; product_name: string; quantity: number; unit_price: number; subtotal: number; }
 
+interface Payable {
+  id: string; po_number: string; supplier_name: string;
+  total_amount: number; paid_amount: number; outstanding: number;
+  discount_amount: number; status: string; due_date?: string; notes?: string;
+}
+interface PayablePayment {
+  id: string; payment_date: string; amount: number;
+  payment_method: string; reference_no?: string; notes?: string;
+}
+
 function formatRp(n: number) {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n || 0);
 }
+function fmtDate(d: string) {
+  return new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+}
 
 export default function PurchasesPage() {
-  const [purchases, setPurchases] = useState<Purchase[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [modal, setModal] = useState(false);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [purchases, setPurchases]         = useState<Purchase[]>([]);
+  const [loading, setLoading]             = useState(true);
+  const [search, setSearch]               = useState('');
+  const [modal, setModal]                 = useState<'add' | 'hutang' | null>(null);
+  const [suppliers, setSuppliers]         = useState<Supplier[]>([]);
+  const [products, setProducts]           = useState<Product[]>([]);
   const [selectedSupplier, setSelectedSupplier] = useState('');
-  const [items, setItems] = useState<PurchaseItem[]>([]);
-  const [notes, setNotes] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [items, setItems]                 = useState<PurchaseItem[]>([]);
+  const [notes, setNotes]                 = useState('');
+  const [saving, setSaving]               = useState(false);
+  const [error, setError]                 = useState('');
+
+  // Hutang state
+  const [viewPurchase, setViewPurchase]   = useState<Purchase | null>(null);
+  const [hutang, setHutang]               = useState<Payable | null>(null);
+  const [hutangPayments, setHutangPayments] = useState<PayablePayment[]>([]);
+  const [hutangLoading, setHutangLoading] = useState(false);
+  const [showAddBayar, setShowAddBayar]   = useState(false);
+  const [bayarAmount, setBayarAmount]     = useState('');
+  const [bayarDate, setBayarDate]         = useState(new Date().toISOString().split('T')[0]);
+  const [bayarMethod, setBayarMethod]     = useState('transfer');
+  const [bayarRef, setBayarRef]           = useState('');
+  const [bayarNotes, setBayarNotes]       = useState('');
+  const [bayarSaving, setBayarSaving]     = useState(false);
+  const [bayarError, setBayarError]       = useState('');
 
   const fetchPurchases = useCallback(async () => {
     setLoading(true);
@@ -43,7 +70,7 @@ export default function PurchasesPage() {
   }, []);
 
   function openModal() {
-    setSelectedSupplier(''); setItems([]); setNotes(''); setError(''); setModal(true);
+    setSelectedSupplier(''); setItems([]); setNotes(''); setError(''); setModal('add');
   }
 
   function addItem(productId: string) {
@@ -71,17 +98,84 @@ export default function PurchasesPage() {
     setSaving(true); setError('');
     try {
       const res = await fetch('/api/purchases', {
-        method: 'POST',
+        method : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ supplier_id: selectedSupplier || null, items, notes }),
+        body   : JSON.stringify({ supplier_id: selectedSupplier || null, items, notes }),
       });
       if (!res.ok) throw new Error((await res.json()).error);
-      setModal(false);
+      setModal(null);
       fetchPurchases();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Gagal menyimpan');
     } finally { setSaving(false); }
   }
+
+  // ── Open Hutang Modal ─────────────────────────────────────────────────────
+  async function openHutang(po: Purchase) {
+    setViewPurchase(po);
+    setHutang(null);
+    setHutangPayments([]);
+    setShowAddBayar(false);
+    setBayarAmount(''); setBayarRef(''); setBayarNotes('');
+    setBayarDate(new Date().toISOString().split('T')[0]);
+    setBayarMethod('transfer'); setBayarError('');
+    setModal('hutang');
+    setHutangLoading(true);
+    try {
+      const res  = await fetch(`/api/payables?search=${encodeURIComponent(po.purchase_number)}`);
+      const data = await res.json();
+      const found: Payable | undefined = (data.payables || []).find(
+        (h: Payable) => h.po_number === po.purchase_number
+      );
+      if (found) {
+        setHutang(found);
+        const pr = await fetch(`/api/payables/${found.id}`);
+        const pd = await pr.json();
+        setHutangPayments(pd.payments || []);
+      }
+    } finally {
+      setHutangLoading(false);
+    }
+  }
+
+  async function handleTambahBayar() {
+    if (!hutang) return;
+    const amt = parseFloat(bayarAmount);
+    if (!amt || amt <= 0) { setBayarError('Jumlah harus lebih dari 0'); return; }
+    setBayarSaving(true); setBayarError('');
+    try {
+      const res = await fetch(`/api/payables/${hutang.id}`, {
+        method : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body   : JSON.stringify({
+          amount        : amt,
+          payment_date  : bayarDate,
+          payment_method: bayarMethod,
+          reference_no  : bayarRef || undefined,
+          notes         : bayarNotes || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      const data = await res.json();
+      setHutang(data.payable);
+      const pr = await fetch(`/api/payables/${hutang.id}`);
+      const pd = await pr.json();
+      setHutangPayments(pd.payments || []);
+      setShowAddBayar(false);
+      setBayarAmount(''); setBayarRef(''); setBayarNotes('');
+      fetchPurchases();
+    } catch (e) {
+      setBayarError(e instanceof Error ? e.message : 'Gagal menyimpan');
+    } finally {
+      setBayarSaving(false);
+    }
+  }
+
+  const hutangBadge = (s: string) => {
+    const map: Record<string, string>   = { paid: 'badge-success', partial: 'badge-warning', outstanding: 'badge-danger', overdue: 'badge-danger' };
+    const label: Record<string, string> = { paid: 'Lunas', partial: 'Cicilan', outstanding: 'Belum Bayar', overdue: 'Jatuh Tempo' };
+    return <span className={`badge ${map[s] || 'badge-stone'}`}>{label[s] || s}</span>;
+  };
 
   return (
     <div style={{ padding: '32px 28px' }}>
@@ -103,48 +197,61 @@ export default function PurchasesPage() {
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <table className="data-table">
           <thead>
-            <tr><th>No. PO</th><th>Supplier</th><th>Total</th><th>Status</th><th>Dibuat Oleh</th><th>Tanggal</th></tr>
+            <tr><th>No. PO</th><th>Supplier</th><th>Total</th><th>Dibayar</th><th>Status</th><th>Dibuat Oleh</th><th>Tanggal</th><th>Aksi</th></tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} style={{ textAlign: 'center', padding: '40px' }}><div className="loading-spinner" style={{ margin: '0 auto' }} /></td></tr>
+              <tr><td colSpan={8} style={{ textAlign: 'center', padding: '40px' }}><div className="loading-spinner" style={{ margin: '0 auto' }} /></td></tr>
             ) : purchases.map(p => (
               <tr key={p.id}>
                 <td style={{ fontWeight: 600, color: '#1c1917', fontSize: '0.82rem' }}>
-                    {p.purchase_number}
-                    <button onClick={e => { e.stopPropagation(); window.open(`/api/pdf/purchase/${p.id}`, '_blank'); }}
-                      style={{ marginLeft: '8px', background: 'none', border: '1px solid #e7e5e4', borderRadius: '5px', padding: '2px 6px', fontSize: '0.68rem', cursor: 'pointer', color: '#57534e' }}>
-                      📄
-                    </button>
-                  </td>
+                  {p.purchase_number}
+                  <button onClick={e => { e.stopPropagation(); window.open(`/api/pdf/purchase/${p.id}`, '_blank'); }}
+                    style={{ marginLeft: '8px', background: 'none', border: '1px solid #e7e5e4', borderRadius: '5px', padding: '2px 6px', fontSize: '0.68rem', cursor: 'pointer', color: '#57534e' }}>
+                    📄
+                  </button>
+                </td>
                 <td>{p.supplier_name || <span style={{ color: '#a8a29e' }}>— Tanpa Supplier —</span>}</td>
                 <td style={{ fontWeight: 700 }}>{formatRp(p.total_amount)}</td>
+                <td style={{ color: p.paid_amount >= p.total_amount ? '#166534' : '#78716c' }}>
+                  {formatRp(p.paid_amount)}
+                </td>
                 <td>
                   <span className={`badge ${p.status === 'received' ? 'badge-success' : p.status === 'cancelled' ? 'badge-danger' : 'badge-warning'}`}>
                     {p.status}
                   </span>
                 </td>
                 <td style={{ fontSize: '0.85rem', color: '#78716c' }}>{p.created_by_name || '—'}</td>
-                <td style={{ fontSize: '0.8rem', color: '#a8a29e' }}>{new Date(p.purchase_date).toLocaleDateString('id-ID')}</td>
+                <td style={{ fontSize: '0.8rem', color: '#a8a29e' }}>{fmtDate(p.purchase_date)}</td>
+                <td>
+                  <button onClick={() => openHutang(p)}
+                    style={{ background: p.paid_amount >= p.total_amount ? '#f0fdf4' : '#fef3c7', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.75rem', color: p.paid_amount >= p.total_amount ? '#166534' : '#92400e', fontWeight: 600 }}>
+                    🏦 Hutang
+                  </button>
+                </td>
               </tr>
             ))}
             {!loading && purchases.length === 0 && (
-              <tr><td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: '#a8a29e' }}>Tidak ada data pembelian</td></tr>
+              <tr><td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: '#a8a29e' }}>Tidak ada data pembelian</td></tr>
             )}
           </tbody>
         </table>
       </div>
 
-      {/* Modal */}
-      {modal && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setModal(false); }}>
+      {/* ── Add Purchase Modal ── */}
+      {modal === 'add' && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setModal(null); }}>
           <div className="modal" style={{ maxWidth: '820px' }}>
             <div className="modal-header">
               <h2 style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: '1.5rem', fontWeight: 600 }}>Purchase Order Baru</h2>
-              <button onClick={() => setModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#78716c' }}>✕</button>
+              <button onClick={() => setModal(null)} style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#78716c' }}>✕</button>
             </div>
             <div className="modal-body">
               {error && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '12px', color: '#dc2626', marginBottom: '16px', fontSize: '0.85rem' }}>{error}</div>}
+
+              <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', fontSize: '0.82rem', color: '#92400e' }}>
+                ⚡ <strong>Hutang ke supplier otomatis dibuat</strong> saat PO ini disimpan. Catat pembayaran via tombol Hutang di daftar.
+              </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
                 <div className="form-group">
@@ -210,8 +317,169 @@ export default function PurchasesPage() {
               </div>
             </div>
             <div className="modal-footer">
-              <button className="btn-secondary" onClick={() => setModal(false)}>Batal</button>
+              <button className="btn-secondary" onClick={() => setModal(null)}>Batal</button>
               <button className="btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Menyimpan...' : '✓ Simpan PO'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Hutang Modal ── */}
+      {modal === 'hutang' && viewPurchase && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setModal(null); }}>
+          <div className="modal" style={{ maxWidth: '680px' }}>
+            <div className="modal-header">
+              <div>
+                <h2 style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: '1.4rem', fontWeight: 600 }}>
+                  🏦 Hutang — {viewPurchase.purchase_number}
+                </h2>
+                <p style={{ fontSize: '0.78rem', color: '#78716c', margin: 0 }}>{viewPurchase.supplier_name || 'Tanpa Supplier'}</p>
+              </div>
+              <button onClick={() => setModal(null)} style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#78716c' }}>✕</button>
+            </div>
+            <div className="modal-body">
+              {hutangLoading ? (
+                <div style={{ textAlign: 'center', padding: '40px' }}><div className="loading-spinner" style={{ margin: '0 auto' }} /></div>
+              ) : !hutang ? (
+                <div style={{ textAlign: 'center', padding: '32px', color: '#78716c' }}>
+                  <div style={{ fontSize: '2rem', marginBottom: '12px' }}>📋</div>
+                  <p>Data hutang tidak ditemukan untuk PO ini.</p>
+                </div>
+              ) : (
+                <>
+                  {/* Summary */}
+                  <div style={{ background: '#fafaf9', borderRadius: '12px', padding: '20px', marginBottom: '20px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '0.7rem', color: '#78716c', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '4px' }}>Total Hutang</div>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1c1917' }}>{formatRp(hutang.total_amount - hutang.discount_amount)}</div>
+                      </div>
+                      <div style={{ textAlign: 'center', borderLeft: '1px solid #e7e5e4', borderRight: '1px solid #e7e5e4' }}>
+                        <div style={{ fontSize: '0.7rem', color: '#78716c', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '4px' }}>Sudah Dibayar</div>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#166534' }}>{formatRp(hutang.paid_amount)}</div>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '0.7rem', color: '#78716c', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '4px' }}>Sisa Hutang</div>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 700, color: hutang.outstanding > 0 ? '#dc2626' : '#166534' }}>{formatRp(hutang.outstanding)}</div>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div style={{ background: '#e7e5e4', borderRadius: '99px', height: '8px', marginBottom: '8px' }}>
+                      <div style={{
+                        background: hutang.status === 'paid' ? '#16a34a' : '#dc2626',
+                        borderRadius: '99px', height: '8px',
+                        width: `${Math.min(100, (hutang.paid_amount / (hutang.total_amount - hutang.discount_amount)) * 100)}%`,
+                        transition: 'width 0.3s ease',
+                      }} />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.73rem', color: '#78716c' }}>
+                      <span>{hutangBadge(hutang.status)}</span>
+                      <span>{Math.round((hutang.paid_amount / Math.max(1, hutang.total_amount - hutang.discount_amount)) * 100)}% terbayar</span>
+                    </div>
+
+                    {hutang.due_date && (
+                      <div style={{ marginTop: '10px', fontSize: '0.78rem', color: new Date(hutang.due_date) < new Date() && hutang.status !== 'paid' ? '#dc2626' : '#78716c' }}>
+                        📅 Jatuh tempo: {fmtDate(hutang.due_date)}
+                        {new Date(hutang.due_date) < new Date() && hutang.status !== 'paid' && ' ⚠️ Melewati jatuh tempo'}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Payment History */}
+                  <div style={{ marginBottom: '16px' }}>
+                    <h3 style={{ fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#78716c', marginBottom: '10px' }}>
+                      Riwayat Pembayaran ({hutangPayments.length})
+                    </h3>
+                    {hutangPayments.length === 0 ? (
+                      <p style={{ color: '#a8a29e', fontSize: '0.85rem', textAlign: 'center', padding: '16px' }}>Belum ada pembayaran ke supplier</p>
+                    ) : (
+                      <div style={{ border: '1px solid #f0efee', borderRadius: '8px', overflow: 'hidden' }}>
+                        {hutangPayments.map((p, idx) => (
+                          <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: idx < hutangPayments.length - 1 ? '1px solid #f5f5f4' : 'none', background: idx % 2 === 0 ? '#fff' : '#fafaf9' }}>
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: '0.88rem', color: '#1c1917' }}>{formatRp(p.amount)}</div>
+                              <div style={{ fontSize: '0.73rem', color: '#78716c' }}>
+                                {fmtDate(p.payment_date)} · {p.payment_method}
+                                {p.reference_no && ` · Ref: ${p.reference_no}`}
+                              </div>
+                              {p.notes && <div style={{ fontSize: '0.72rem', color: '#a8a29e', marginTop: '2px' }}>{p.notes}</div>}
+                            </div>
+                            <div style={{ background: '#fef2f2', color: '#dc2626', borderRadius: '6px', padding: '4px 10px', fontSize: '0.75rem', fontWeight: 600 }}>
+                              ✓ Keluar
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Add Payment */}
+                  {hutang.status !== 'paid' && (
+                    <div>
+                      {!showAddBayar ? (
+                        <button onClick={() => setShowAddBayar(true)}
+                          style={{ width: '100%', background: '#1c1917', color: 'white', border: 'none', borderRadius: '8px', padding: '12px', cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem' }}>
+                          + Catat Pembayaran ke Supplier
+                        </button>
+                      ) : (
+                        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px', padding: '16px' }}>
+                          <h4 style={{ margin: '0 0 14px', fontSize: '0.85rem', fontWeight: 700, color: '#991b1b' }}>Catat Pembayaran Hutang</h4>
+                          {bayarError && <div style={{ background: '#fff', border: '1px solid #fecaca', borderRadius: '6px', padding: '10px', color: '#dc2626', marginBottom: '12px', fontSize: '0.82rem' }}>{bayarError}</div>}
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#78716c', marginBottom: '4px' }}>Jumlah Bayar *</label>
+                              <input type="number" placeholder={`Maks ${formatRp(hutang.outstanding)}`} value={bayarAmount} onChange={e => setBayarAmount(e.target.value)}
+                                style={{ width: '100%', border: '1px solid #e7e5e4', borderRadius: '6px', padding: '8px 10px', fontSize: '0.88rem', boxSizing: 'border-box' }} />
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#78716c', marginBottom: '4px' }}>Tanggal Bayar</label>
+                              <input type="date" value={bayarDate} onChange={e => setBayarDate(e.target.value)}
+                                style={{ width: '100%', border: '1px solid #e7e5e4', borderRadius: '6px', padding: '8px 10px', fontSize: '0.88rem', boxSizing: 'border-box' }} />
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#78716c', marginBottom: '4px' }}>Metode</label>
+                              <select value={bayarMethod} onChange={e => setBayarMethod(e.target.value)}
+                                style={{ width: '100%', border: '1px solid #e7e5e4', borderRadius: '6px', padding: '8px 10px', fontSize: '0.88rem', boxSizing: 'border-box' }}>
+                                <option value="transfer">Transfer</option>
+                                <option value="cash">Cash</option>
+                                <option value="giro">Giro</option>
+                                <option value="cek">Cek</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#78716c', marginBottom: '4px' }}>No. Referensi</label>
+                              <input type="text" placeholder="No. transfer / cek" value={bayarRef} onChange={e => setBayarRef(e.target.value)}
+                                style={{ width: '100%', border: '1px solid #e7e5e4', borderRadius: '6px', padding: '8px 10px', fontSize: '0.88rem', boxSizing: 'border-box' }} />
+                            </div>
+                          </div>
+                          <div style={{ marginBottom: '12px' }}>
+                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#78716c', marginBottom: '4px' }}>Catatan</label>
+                            <input type="text" value={bayarNotes} onChange={e => setBayarNotes(e.target.value)}
+                              style={{ width: '100%', border: '1px solid #e7e5e4', borderRadius: '6px', padding: '8px 10px', fontSize: '0.88rem', boxSizing: 'border-box' }} />
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button onClick={() => setShowAddBayar(false)}
+                              style={{ flex: 1, background: '#f5f5f4', border: 'none', borderRadius: '6px', padding: '10px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                              Batal
+                            </button>
+                            <button onClick={handleTambahBayar} disabled={bayarSaving}
+                              style={{ flex: 2, background: '#1c1917', color: 'white', border: 'none', borderRadius: '6px', padding: '10px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
+                              {bayarSaving ? 'Menyimpan...' : '✓ Simpan Pembayaran'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {hutang.status === 'paid' && (
+                    <div style={{ textAlign: 'center', padding: '16px', background: '#f0fdf4', borderRadius: '8px', color: '#166534', fontWeight: 600 }}>
+                      ✅ Hutang ini sudah LUNAS
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>

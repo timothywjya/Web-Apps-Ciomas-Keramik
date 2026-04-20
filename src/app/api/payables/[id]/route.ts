@@ -5,6 +5,10 @@ import { PayableRepository } from '@/server/repositories/ledger.repository';
 
 type Ctx = { params: Promise<{ id: string }> };
 
+// GET   /api/payables/:id  → detail hutang + riwayat pembayaran
+// POST  /api/payables/:id  → catat pembayaran ke supplier
+// PATCH /api/payables/:id  → update diskon
+
 export async function GET(req: NextRequest, { params }: Ctx) {
   return handle(async () => {
     const auth = await requireAuth();
@@ -25,14 +29,18 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     if (auth instanceof NextResponse) return auth;
 
     const { id } = await params;
-    const { amount, payment_date, payment_method, reference_no, notes } = await req.json();
+    const {
+      amount, payment_date, payment_method,
+      bank_name, reference_no, notes,
+    } = await req.json();
 
     const { payment, payable } = await PayableRepository.addPayment({
       payable_id    : id,
       amount        : Number(amount),
-      payment_date  : payment_date ?? new Date().toISOString().split('T')[0],
+      payment_date  : payment_date  ?? new Date().toISOString().split('T')[0],
       payment_method: payment_method ?? 'transfer',
-      reference_no,
+      bank_name     : bank_name   ?? undefined,
+      reference_no  : reference_no ?? undefined,
       notes,
       created_by    : auth.id,
     });
