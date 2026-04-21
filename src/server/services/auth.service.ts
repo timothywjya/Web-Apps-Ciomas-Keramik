@@ -1,18 +1,22 @@
 import { comparePassword, signToken } from '@/lib/auth';
-import { UserRepository } from '@/server/repositories/user.repository';
-import type { UserPayload } from '@/types';
+import { UserRepository }             from '@/server/repositories/user.repository';
+import type { UserPayload }           from '@/types';
+
+const GENERIC_AUTH_ERROR = 'Username atau password salah.';
 
 export const AuthService = {
 
   async login(username: string, password: string): Promise<{ token: string; user: UserPayload }> {
-    if (!username || !password) throw new Error('Username dan password wajib diisi');
+    if (!username || !password) throw new Error(GENERIC_AUTH_ERROR);
 
     const user = await UserRepository.findByUsername(username);
-    if (!user)            throw new Error('Username tidak ditemukan');
-    if (!user.is_active)  throw new Error('Akun tidak aktif, hubungi administrator');
+    const dummyHash = '$2a$12$invalidhashfortimingprotectiononly000000000000000000000';
+    const passwordHash = user?.password_hash ?? dummyHash;
 
-    const valid = await comparePassword(password, user.password_hash);
-    if (!valid) throw new Error('Password salah');
+    const valid = await comparePassword(password, passwordHash);
+
+    if (!user || !valid) throw new Error(GENERIC_AUTH_ERROR);
+    if (!user.is_active)  throw new Error('Akun tidak aktif. Hubungi administrator.');
 
     await UserRepository.updateLastLogin(user.id);
 

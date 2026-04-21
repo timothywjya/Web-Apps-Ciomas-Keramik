@@ -1,17 +1,15 @@
-import { NextResponse } from 'next/server';
-import { getSession } from '@/lib/auth';
-import type { UserPayload } from '@/types';
+import { NextResponse }         from 'next/server';
+import { getSession }           from '@/lib/auth';
+import { isValidUUID }          from '@/lib/validation';
+import type { UserPayload }     from '@/types';
 
 type Role = UserPayload['role'];
-
-// ── Response helpers ──────────────────────────────────────────────────────────
 
 export function ok<T extends object>(data: T, status = 200) {
   return NextResponse.json({ success: true, ...data }, { status });
 }
 
-export const created = <T extends object>(data: T) => ok(data, 201);
-
+export const created   = <T extends object>(data: T) => ok(data, 201);
 export const noContent = () => new NextResponse(null, { status: 204 });
 
 export function fail(message: string, status = 400) {
@@ -22,12 +20,15 @@ export const unauthorized = (msg = 'Sesi tidak ditemukan, silakan login kembali'
 export const forbidden     = (msg = 'Akses ditolak')                               => fail(msg, 403);
 
 export function serverError(err: unknown): NextResponse {
-  const message = err instanceof Error ? err.message : 'Terjadi kesalahan server';
   console.error('[SERVER ERROR]', err);
+  
+  const message = process.env.NODE_ENV !== 'production'
+    ? (err instanceof Error ? err.message : 'Unknown error')
+    : 'Terjadi kesalahan server. Silakan coba lagi.';
   return fail(message, 500);
 }
 
-// ── Auth guards ───────────────────────────────────────────────────────────────
+// ─── Auth guards ──────────────────────────────────────────────────────────────
 
 export async function requireAuth(): Promise<UserPayload | NextResponse> {
   const session = await getSession();
@@ -43,12 +44,26 @@ export async function requireRole(...roles: Role[]): Promise<UserPayload | NextR
   return session;
 }
 
-// ── Error boundary wrapper ────────────────────────────────────────────────────
+// ─── ID validation ────────────────────────────────────────────────────────────
+
+/** Call at the top of any route that uses a UUID path param. */
+export function validateId(id: string): NextResponse | null {
+  if (!isValidUUID(id)) {
+    return fail('ID tidak valid.', 400);
+  }
+  return null;
+}
+
+// ─── Error boundary ───────────────────────────────────────────────────────────
 
 export async function handle(fn: () => Promise<NextResponse>): Promise<NextResponse> {
   try {
     return await fn();
   } catch (err) {
+    // Let ValidationError surface with its own 400 message
+    if (err instanceof Error && err.name === 'ValidationError') {
+      return fail(err.message, 400);
+    }
     return serverError(err);
   }
 }

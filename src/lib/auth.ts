@@ -1,18 +1,27 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { cookies } from 'next/headers';
+import { createHmac } from 'crypto';
 import type { UserPayload } from '@/types';
 
-const JWT_SECRET  = process.env.JWT_SECRET ?? 'ciomas-keramik-secret-2024';
+function requireEnv(key: string): string {
+  const val = process.env[key];
+  if (!val || val.trim() === '') {
+    throw new Error(
+      `[auth] Environment variable "${key}" is missing or empty. ` +
+      `Set a strong random value (≥32 chars) in .env.local`,
+    );
+  }
+  return val;
+}
+
+const JWT_SECRET  = requireEnv('JWT_SECRET');
 const JWT_EXPIRES = '8h';
-const COOKIE_NAME = 'auth_token';
+const CONTENT_KEY_SECRET = process.env.CONTENT_KEY_SECRET ?? JWT_SECRET;
+const COOKIE_NAME = '__Host-auth_token';
 
-// ── Password ──────────────────────────────────────────────────────────────────
-
-export const hashPassword    = (plain: string) => bcrypt.hash(plain, 10);
+export const hashPassword    = (plain: string) => bcrypt.hash(plain, 12); // bumped from 10→12
 export const comparePassword = (plain: string, hash: string) => bcrypt.compare(plain, hash);
-
-// ── JWT ───────────────────────────────────────────────────────────────────────
 
 export function signToken(payload: UserPayload): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES });
@@ -26,9 +35,13 @@ export function verifyToken(token: string): UserPayload | null {
   }
 }
 
-// ── Session (server-side only) ────────────────────────────────────────────────
-// Token dibaca dari httpOnly cookie — tidak bisa diakses JS di browser.
-// Verifikasi signature JWT dilakukan di sini (Node.js runtime), bukan di middleware.
+export function verifyTokenStrict(token: string): UserPayload {
+  try {
+    return jwt.verify(token, JWT_SECRET) as UserPayload;
+  } catch (err) {
+    throw new Error('Token tidak valid atau sudah kedaluwarsa.');
+  }
+}
 
 export async function getSession(): Promise<UserPayload | null> {
   const store = await cookies();
@@ -36,14 +49,14 @@ export async function getSession(): Promise<UserPayload | null> {
   return token ? verifyToken(token) : null;
 }
 
-// ── Cookie helpers ────────────────────────────────────────────────────────────
+const SESSION_MAX_AGE = 60 * 60 * 8; // 8 hours — matches JWT_EXPIRES
 
 const COOKIE_OPTIONS = {
   httpOnly : true,
-  secure   : process.env.NODE_ENV === 'production',
-  sameSite : 'lax' as const,
+  secure   : true,                        // __Host- requires secure=true always
+  sameSite : 'strict' as const,           // upgraded from lax → strict
   path     : '/',
-  maxAge   : 60 * 60 * 3,
+  maxAge   : SESSION_MAX_AGE,
 };
 
 export async function setAuthCookie(token: string): Promise<void> {
@@ -56,7 +69,21 @@ export async function clearAuthCookie(): Promise<void> {
   store.delete(COOKIE_NAME);
 }
 
-// ── Formatters ────────────────────────────────────────────────────────────────
+export function generateContentKey(resourceId: string, userId: string): string {
+  const payload = `${resourceId}:${userId}:${Math.floor(Date.now() / (1000 * 60 * 15))}`; // 15-min bucket
+  return createHmac('sha256', CONTENT_KEY_SECRET).update(payload).digest('hex').slice(0, 32);
+}
+
+export function verifyContentKey(
+  key       : string,
+  resourceId: string,
+  userId    : string,
+): boolean {
+  const current  = generateContentKey(resourceId, userId);
+  const prevPayload = `${resourceId}:${userId}:${Math.floor(Date.now() / (1000 * 60 * 15)) - 1}`;
+  const previous = createHmac('sha256', CONTENT_KEY_SECRET).update(prevPayload).digest('hex').slice(0, 32);
+  return key === current || key === previous;
+}
 
 export function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('id-ID', {
