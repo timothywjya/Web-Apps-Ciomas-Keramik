@@ -74,24 +74,47 @@ export const SaleService = {
       await CustomerRepository.incrementPurchases(dto.customer_id, totalAmount);
     }
 
-    // ── Auto-buat Piutang jika payment_method = kredit / tempo ──────────────
-    const pm = dto.payment_method ?? 'cash';
-    if (pm === 'kredit' || pm === 'tempo') {
-      // Ambil invoice_number dari sale yang baru dibuat
+    // ── Auto-buat Piutang berdasarkan metode pembayaran ─────────────────────
+    // kredit / tempo  → piutang penuh (DP diproses terpisah jika ada)
+    // cash / transfer dengan down_payment > 0 → piutang tipe 'dp'
+    const pm    = dto.payment_method ?? 'cash';
+    const dpAmt = (dto as { down_payment?: number }).down_payment ?? 0;
+
+    const shouldCreateReceivable =
+      pm === 'kredit' || pm === 'tempo' ||
+      (( pm === 'cash' || pm === 'transfer' ) && dpAmt > 0 && dpAmt < totalAmount);
+
+    if (shouldCreateReceivable) {
       const newSale = await SaleRepository.findById(sale.id);
       if (newSale) {
-        await ReceivableRepository.create({
+        const paymentType: 'kredit' | 'tempo' | 'dp' =
+          pm === 'kredit' ? 'kredit' :
+          pm === 'tempo'  ? 'tempo'  : 'dp';
+
+        const receivable = await ReceivableRepository.create({
           sale_id        : sale.id,
           invoice_number : newSale.invoice_number,
           invoice_date   : new Date().toISOString().split('T')[0],
           customer_id    : dto.customer_id,
           due_date       : dto.due_date ?? undefined,
-          payment_type   : pm as 'kredit' | 'tempo',
+          payment_type   : paymentType,
           total_amount   : totalAmount,
           discount_amount: 0,
           notes          : dto.notes,
           created_by     : userId,
         });
+
+        // Jika ada DP (uang muka), langsung catat sebagai cicilan pertama
+        if (dpAmt > 0 && dpAmt < totalAmount && receivable?.id) {
+          await ReceivableRepository.addPayment({
+            receivable_id : receivable.id,
+            amount        : dpAmt,
+            payment_date  : new Date().toISOString().split('T')[0],
+            payment_method: pm,
+            notes         : 'DP / Uang Muka (dicatat otomatis saat invoice dibuat)',
+            created_by    : userId,
+          });
+        }
       }
     }
 

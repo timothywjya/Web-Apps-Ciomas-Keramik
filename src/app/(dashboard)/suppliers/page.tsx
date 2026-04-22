@@ -1,5 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
+import { useToast } from '@/lib/toast';
+import { fetchJson, fetchJsonPost, getErrorMessage } from '@/lib/fetchJson';
 
 interface Supplier {
   id: string; name: string; contact_person: string; phone: string;
@@ -9,23 +11,26 @@ interface Supplier {
 const EMPTY = { name: '', contact_person: '', phone: '', email: '', address: '', city: '', notes: '', is_active: true };
 
 export default function SuppliersPage() {
+  const toast = useToast();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [modal, setModal] = useState<'add' | 'edit' | null>(null);
-  const [form, setForm] = useState<Partial<Supplier>>(EMPTY);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [loading, setLoading]     = useState(true);
+  const [search, setSearch]       = useState('');
+  const [modal, setModal]         = useState<'add' | 'edit' | null>(null);
+  const [form, setForm]           = useState<Partial<Supplier>>(EMPTY);
+  const [saving, setSaving]       = useState(false);
+  const [error, setError]         = useState('');
 
   const fetchSuppliers = useCallback(async () => {
     setLoading(true);
-    const params = new URLSearchParams();
-    if (search) params.set('search', search);
-    const res = await fetch(`/api/suppliers?${params}`);
-    const data = await res.json();
-    setSuppliers(data.suppliers || []);
-    setLoading(false);
-  }, [search]);
+    try {
+      const params = new URLSearchParams();
+      if (search) params.set('search', search);
+      const data = await fetchJson<{ suppliers: Supplier[] }>(`/api/suppliers?${params}`);
+      setSuppliers(data.suppliers || []);
+    } catch (err) {
+      toast.error('Gagal memuat supplier', getErrorMessage(err));
+    } finally { setLoading(false); }
+  }, [search, toast]);
 
   useEffect(() => { fetchSuppliers(); }, [fetchSuppliers]);
 
@@ -33,22 +38,28 @@ export default function SuppliersPage() {
   function openEdit(s: Supplier) { setForm(s); setError(''); setModal('edit'); }
 
   async function handleSave() {
+    if (!form.name?.trim()) { setError('Nama supplier tidak boleh kosong'); return; }
     setSaving(true); setError('');
     try {
       const method = modal === 'edit' ? 'PUT' : 'POST';
-      const url = modal === 'edit' ? `/api/suppliers/${form.id}` : '/api/suppliers';
-      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
-      if (!res.ok) throw new Error((await res.json()).error);
-      setModal(null); fetchSuppliers();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Gagal menyimpan');
+      const url    = modal === 'edit' ? `/api/suppliers/${form.id}` : '/api/suppliers';
+      await fetchJsonPost(url, form, method as 'POST' | 'PUT');
+      setModal(null);
+      toast.success(modal === 'edit' ? 'Data supplier diperbarui' : 'Supplier baru ditambahkan');
+      fetchSuppliers();
+    } catch (err) {
+      setError(getErrorMessage(err, 'Gagal menyimpan'));
     } finally { setSaving(false); }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Nonaktifkan supplier ini?')) return;
-    await fetch(`/api/suppliers/${id}`, { method: 'DELETE' });
-    fetchSuppliers();
+  async function handleDelete(id: string, name: string) {
+    const ok = await toast.confirm({ title: 'Nonaktifkan Supplier', message: `Yakin ingin menonaktifkan "${name}"?`, confirmText: 'Ya, Nonaktifkan', danger: true });
+    if (!ok) return;
+    try {
+      await fetchJson(`/api/suppliers/${id}`, { method: 'DELETE' });
+      toast.success('Supplier dinonaktifkan');
+      fetchSuppliers();
+    } catch (err) { toast.error('Gagal menonaktifkan', getErrorMessage(err)); }
   }
 
   const inp = (key: string, label: string, type = 'text') => (
@@ -95,7 +106,7 @@ export default function SuppliersPage() {
                 <td>
                   <div style={{ display: 'flex', gap: '6px' }}>
                     <button onClick={() => openEdit(s)} style={{ background: '#fef3c7', border: 'none', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer', fontSize: '0.75rem', color: '#92400e' }}>Edit</button>
-                    <button onClick={() => handleDelete(s.id)} className="btn-danger" style={{ padding: '6px 10px', fontSize: '0.75rem' }}>Hapus</button>
+                    <button onClick={() => handleDelete(s.id, s.name)} className="btn-danger" style={{ padding: '6px 10px', fontSize: '0.75rem' }}>Hapus</button>
                   </div>
                 </td>
               </tr>
@@ -109,13 +120,11 @@ export default function SuppliersPage() {
         <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setModal(null); }}>
           <div className="modal">
             <div className="modal-header">
-              <h2 style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: '1.5rem', fontWeight: 600 }}>
-                {modal === 'add' ? 'Tambah Supplier Baru' : 'Edit Supplier'}
-              </h2>
+              <h2 style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: '1.5rem', fontWeight: 600 }}>{modal === 'add' ? 'Tambah Supplier Baru' : 'Edit Supplier'}</h2>
               <button onClick={() => setModal(null)} style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#78716c' }}>✕</button>
             </div>
             <div className="modal-body">
-              {error && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '12px', color: '#dc2626', marginBottom: '16px', fontSize: '0.85rem' }}>{error}</div>}
+              {error && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '12px', color: '#dc2626', marginBottom: '16px', fontSize: '0.85rem' }}>⚠ {error}</div>}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                 {inp('name', 'Nama Perusahaan')}
                 {inp('contact_person', 'Kontak Person')}

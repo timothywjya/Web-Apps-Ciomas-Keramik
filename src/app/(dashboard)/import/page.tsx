@@ -302,43 +302,68 @@ function SyncPanel() {
   const hasDups = preview && preview.total > 0;
 
   return (
-    <div>
-      <p style={{ color: '#78716c', fontSize: '0.88rem', marginBottom: '18px', lineHeight: 1.6 }}>
-        Deteksi dan gabungkan data duplikat berdasarkan <strong>konten</strong> (bukan UUID).
-        Kategori & Supplier: duplikat berdasarkan <strong>nama</strong>.
-        Produk: duplikat berdasarkan <strong>nama + ukuran + brand</strong>.
-      </p>
+    <div style={{ width: '100%', boxSizing: 'border-box' }}>
 
-      <button style={S.btn('primary', loading || merging)} onClick={handlePreview} disabled={loading || merging}>
-        {loading ? '🔍 Scanning...' : '🔍 Scan Duplikat'}
+      {/* Description */}
+      <div style={{
+        background: '#fafaf9', border: '1px solid #e7e5e4', borderRadius: '10px',
+        padding: '14px 18px', marginBottom: '20px',
+        display: 'flex', alignItems: 'flex-start', gap: '12px',
+      }}>
+        <span style={{ fontSize: '1.2rem', flexShrink: 0 }}>🔍</span>
+        <div style={{ fontSize: '0.85rem', color: '#57534e', lineHeight: 1.65 }}>
+          Deteksi dan gabungkan data duplikat berdasarkan <strong>konten</strong> (bukan UUID).
+          <br />
+          <span style={{ color: '#78716c' }}>
+            Kategori &amp; Supplier: duplikat berdasarkan <strong>nama</strong>.
+            Produk: duplikat berdasarkan <strong>nama + ukuran + brand</strong>.
+          </span>
+        </div>
+      </div>
+
+      {/* Scan button */}
+      <button
+        style={{ ...S.btn('primary', loading || merging), width: '100%', marginBottom: '16px' }}
+        onClick={handlePreview}
+        disabled={loading || merging}
+      >
+        {loading ? '🔍 Scanning duplikat...' : '🔍 Scan Duplikat Sekarang'}
       </button>
 
-      {error && <div style={{ marginTop: '14px' }}><AlertBox type="error">⚠ {error}</AlertBox></div>}
+      {error && <div style={{ marginBottom: '14px' }}><AlertBox type="error">⚠ {error}</AlertBox></div>}
 
       {/* No duplicates */}
       {preview && !hasDups && (
-        <div style={{ marginTop: '16px', textAlign: 'center' }}>
-          <AlertBox type="success">
-            <div style={{ fontSize: '1.5rem', margin: '8px 0' }}>✅</div>
-            <div style={{ fontWeight: 600 }}>Data sudah bersih — tidak ada duplikat ditemukan</div>
-          </AlertBox>
-        </div>
+        <AlertBox type="success">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontSize: '1.8rem' }}>✅</span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>Data sudah bersih</div>
+              <div style={{ fontSize: '0.8rem', marginTop: '2px', opacity: 0.8 }}>Tidak ada duplikat ditemukan di semua kategori</div>
+            </div>
+          </div>
+        </AlertBox>
       )}
 
       {/* Duplicate summary cards */}
       {hasDups && (
-        <div style={{ marginTop: '18px' }}>
-          <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
+        <div style={{ width: '100%' }}>
+
+          {/* Summary stat cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '20px' }}>
             {(['categories', 'suppliers', 'products'] as const).map(key => {
               const n = preview[key].length;
               return (
                 <div key={key} style={{
-                  flex: 1, minWidth: '140px', borderRadius: '10px', padding: '16px', textAlign: 'center',
+                  borderRadius: '12px', padding: '18px 16px', textAlign: 'center',
                   background: n > 0 ? '#fff7ed' : '#f0fdf4',
                   border    : `1px solid ${n > 0 ? '#fed7aa' : '#bbf7d0'}`,
                 }}>
-                  <div style={{ fontSize: '1.6rem', fontWeight: 700, color: '#1c1917' }}>{n}</div>
-                  <div style={{ fontSize: '0.75rem', color: '#78716c' }}>Duplikat {SYNC_LABELS[key]}</div>
+                  <div style={{ fontSize: '2rem', fontWeight: 700, color: n > 0 ? '#c2410c' : '#166534', lineHeight: 1 }}>{n}</div>
+                  <div style={{ fontSize: '0.72rem', color: '#78716c', marginTop: '6px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Duplikat {SYNC_LABELS[key]}
+                  </div>
+                  <span style={S.badge(n > 0 ? 'yellow' : 'green')}>{n > 0 ? 'Perlu merge' : 'Bersih'}</span>
                 </div>
               );
             })}
@@ -349,20 +374,27 @@ function SyncPanel() {
             const groups = preview[key];
             if (!groups.length) return null;
             return (
-              <div key={key} style={{ marginBottom: '14px' }}>
-                <div style={{ fontWeight: 600, fontSize: '0.8rem', color: '#57534e', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>
-                  {SYNC_LABELS[key]}
+              <div key={key} style={{ marginBottom: '18px', width: '100%' }}>
+                <div style={{
+                  fontWeight: 700, fontSize: '0.75rem', color: '#57534e',
+                  textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px',
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                }}>
+                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#f59e0b', flexShrink: 0, display: 'inline-block' }} />
+                  {SYNC_LABELS[key]} — {groups.length} grup duplikat
                 </div>
-                <div style={{ border: '1px solid #e7e5e4', borderRadius: '10px', overflow: 'hidden' }}>
+                <div style={{ border: '1px solid #e7e5e4', borderRadius: '10px', overflow: 'hidden', width: '100%' }}>
                   {groups.map((g, i) => (
                     <div key={i} style={{
-                      padding: '9px 14px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap',
+                      padding: '10px 16px',
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
                       borderBottom: i < groups.length - 1 ? '1px solid #f5f5f4' : 'none',
+                      background: i % 2 === 0 ? 'white' : '#fafaf9',
                     }}>
-                      <span style={{ fontFamily: 'monospace', fontSize: '0.82rem', flex: 1, color: '#1c1917' }}>
-                        "{g.value}"
+                      <span style={{ fontFamily: 'monospace', fontSize: '0.83rem', color: '#1c1917', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        &ldquo;{g.value}&rdquo;
                       </span>
-                      <span style={S.badge('yellow')}>{g.count} duplikat</span>
+                      <span style={{ ...S.badge('yellow'), flexShrink: 0 }}>{g.count} duplikat</span>
                     </div>
                   ))}
                 </div>
@@ -371,43 +403,49 @@ function SyncPanel() {
           })}
 
           {/* Merge action */}
-          <div style={{ marginTop: '10px' }}>
-            <AlertBox type="warn">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-                <div>
-                  <div style={{ fontWeight: 600 }}>⚡ {preview.total} grup duplikat siap di-merge</div>
-                  <div style={{ fontSize: '0.78rem', marginTop: '2px' }}>
-                    Record tertua dipertahankan. FK (penjualan, stok, pembelian) dialihkan otomatis.
-                  </div>
-                </div>
-                <button style={S.btn('danger', merging)} onClick={handleMerge} disabled={merging}>
-                  {merging ? '⏳ Merging...' : '🔗 Merge Sekarang'}
-                </button>
+          <AlertBox type="warn">
+            <div style={{ marginBottom: '10px' }}>
+              <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: '4px' }}>
+                ⚡ {preview.total} grup duplikat siap di-merge
               </div>
-            </AlertBox>
-          </div>
+              <div style={{ fontSize: '0.8rem', opacity: 0.85, lineHeight: 1.5 }}>
+                Record tertua dipertahankan sebagai master. Semua foreign key (penjualan, pembelian, stok)
+                akan dialihkan otomatis ke record master. Aksi ini <strong>tidak bisa dibatalkan</strong>.
+              </div>
+            </div>
+            <button
+              style={{ ...S.btn('danger', merging), width: '100%' }}
+              onClick={handleMerge}
+              disabled={merging}
+            >
+              {merging ? '⏳ Sedang merge...' : '🔗 Merge Semua Duplikat Sekarang'}
+            </button>
+          </AlertBox>
         </div>
       )}
 
       {/* Merge result */}
       {result && (
-        <div style={{ marginTop: '16px' }}>
+        <div style={{ marginTop: '4px' }}>
           <AlertBox type="success">
-            <div style={{ fontWeight: 700, marginBottom: '12px' }}>✅ Merge Selesai</div>
-            {(['categories', 'suppliers', 'products'] as const).map(key => (
-              <div key={key} style={{
-                display: 'flex', justifyContent: 'space-between',
-                padding: '7px 10px', background: 'white', borderRadius: '7px',
-                border: '1px solid #dcfce7', marginBottom: '6px', fontSize: '0.85rem',
-              }}>
-                <span>{SYNC_LABELS[key]}</span>
-                <span style={{ color: '#78716c' }}>
-                  {result[key].duplicates_found} grup →&nbsp;
-                  <strong style={{ color: '#166534' }}>{result[key].merged} di-merge</strong>
-                </span>
-              </div>
-            ))}
-            <button style={{ ...S.btn('ghost'), marginTop: '10px' }} onClick={handlePreview}>
+            <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: '14px' }}>✅ Merge Selesai</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {(['categories', 'suppliers', 'products'] as const).map(key => (
+                <div key={key} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '10px 14px', background: 'white', borderRadius: '8px',
+                  border: '1px solid #dcfce7', fontSize: '0.85rem',
+                }}>
+                  <div style={{ fontWeight: 600, color: '#1c1917' }}>{SYNC_LABELS[key]}</div>
+                  <div style={{ color: '#78716c', textAlign: 'right' }}>
+                    <span>{result[key].duplicates_found} grup ditemukan</span>
+                    <span style={{ margin: '0 6px' }}>→</span>
+                    <strong style={{ color: '#166534' }}>{result[key].merged} berhasil di-merge</strong>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button style={{ ...S.btn('ghost'), width: '100%', marginTop: '14px' }} onClick={handlePreview}>
               🔍 Scan Ulang
             </button>
           </AlertBox>

@@ -1,5 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
+import { useToast } from '@/lib/toast';
+import { fetchJson, fetchJsonPost, getErrorMessage } from '@/lib/fetchJson';
 
 interface Purchase {
   id: string; purchase_number: string; supplier_name: string; supplier_id: string;
@@ -27,6 +29,7 @@ function fmtDate(d: string) {
 }
 
 export default function PurchasesPage() {
+  const toast = useToast();
   const [purchases, setPurchases]         = useState<Purchase[]>([]);
   const [loading, setLoading]             = useState(true);
   const [search, setSearch]               = useState('');
@@ -57,16 +60,19 @@ export default function PurchasesPage() {
     setLoading(true);
     const params = new URLSearchParams();
     if (search) params.set('search', search);
-    const res = await fetch(`/api/purchases?${params}`);
-    const data = await res.json();
-    setPurchases(data.purchases || []);
+    const data = await fetchJson<Record<string,unknown>>(`/api/purchases?${params}`);
+    
+    setPurchases((data.purchases || []) as never[]);
+    setLoading(false);
+  } catch (err) {
+    toast.error('Gagal memuat data', getErrorMessage(err));
     setLoading(false);
   }, [search]);
 
   useEffect(() => { fetchPurchases(); }, [fetchPurchases]);
   useEffect(() => {
-    fetch('/api/suppliers').then(r => r.json()).then(d => setSuppliers(d.suppliers || []));
-    fetch('/api/products?active=1').then(r => r.json()).then(d => setProducts(d.products || []));
+    fetchJson<Record<string,unknown>>('/api/suppliers').then(d=>setSuppliers((d.suppliers||[]) as never[])).catch(()=>{});
+    fetchJson<Record<string,unknown>>('/api/products?active=1').then(d=>setProducts((d.products||[]) as never[])).catch(()=>{});
   }, []);
 
   function openModal() {
@@ -97,17 +103,10 @@ export default function PurchasesPage() {
     if (items.length === 0) { setError('Tambahkan minimal 1 produk'); return; }
     setSaving(true); setError('');
     try {
-      const res = await fetch('/api/purchases', {
-        method : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body   : JSON.stringify({ supplier_id: selectedSupplier || null, items, notes }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error);
+      const json = await fetchJsonPost<Record<string,unknown>>('/api/purchases', {}, 'POST');
       setModal(null);
       fetchPurchases();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Gagal menyimpan');
-    } finally { setSaving(false); }
+    } catch (err) { setError(getErrorMessage(err, 'Gagal menyimpan')); } finally { setSaving(false); }
   }
 
   // ── Open Hutang Modal ─────────────────────────────────────────────────────
@@ -122,15 +121,13 @@ export default function PurchasesPage() {
     setModal('hutang');
     setHutangLoading(true);
     try {
-      const res  = await fetch(`/api/payables?search=${encodeURIComponent(po.purchase_number)}`);
-      const data = await res.json();
+      const data = await fetchJson<Record<string,unknown>>(`/api/payables?search=${encodeURIComponent(po.purchase_number)}`);
       const found: Payable | undefined = (data.payables || []).find(
         (h: Payable) => h.po_number === po.purchase_number
       );
       if (found) {
         setHutang(found);
-        const pr = await fetch(`/api/payables/${found.id}`);
-        const pd = await pr.json();
+        const pd = await fetchJson<Record<string,unknown>>(`/api/payables/${found.id}`);
         setHutangPayments(pd.payments || []);
       }
     } finally {
@@ -144,22 +141,9 @@ export default function PurchasesPage() {
     if (!amt || amt <= 0) { setBayarError('Jumlah harus lebih dari 0'); return; }
     setBayarSaving(true); setBayarError('');
     try {
-      const res = await fetch(`/api/payables/${hutang.id}`, {
-        method : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body   : JSON.stringify({
-          amount        : amt,
-          payment_date  : bayarDate,
-          payment_method: bayarMethod,
-          reference_no  : bayarRef || undefined,
-          notes         : bayarNotes || undefined,
-        }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error);
-      const data = await res.json();
+      const data = await fetchJsonPost<Record<string,unknown>>(`/api/payables/${hutang.id}`, {}, 'POST');
       setHutang(data.payable);
-      const pr = await fetch(`/api/payables/${hutang.id}`);
-      const pd = await pr.json();
+      const pd = await fetchJson<Record<string,unknown>>(`/api/payables/${hutang.id}`);
       setHutangPayments(pd.payments || []);
       setShowAddBayar(false);
       setBayarAmount(''); setBayarRef(''); setBayarNotes('');

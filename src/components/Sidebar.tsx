@@ -38,6 +38,7 @@ const navGroups = [
     section: 'Master', defaultOpen: false,
     items: [
       { href: '/users',  label: 'Master User', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> },
+      { href: '/tax',     label: 'Perpajakan',  icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><line x1="7" y1="8" x2="9" y2="8"/><line x1="7" y1="12" x2="17" y2="12"/></svg>, badge: 'soon' },
       { href: '/reports', label: 'Laporan',     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
       { href: '/import',  label: 'Import & Sync', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg> },
     ]
@@ -174,8 +175,13 @@ function NavItems({
                         {item.icon}
                       </span>
                       {!collapsed && (
-                        <span style={{ fontSize: '0.82rem', fontWeight: active ? 500 : 400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <span style={{ fontSize: '0.82rem', fontWeight: active ? 500 : 400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
                           {item.label}
+                        </span>
+                      )}
+                      {!collapsed && (item as { badge?: string }).badge === 'soon' && (
+                        <span style={{ fontSize: '0.6rem', fontWeight: 700, background: '#854d0e', color: '#fef9c3', padding: '1px 5px', borderRadius: '4px', letterSpacing: '0.4px', flexShrink: 0 }}>
+                          SOON
                         </span>
                       )}
                       {collapsed && active && (

@@ -1,5 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
+import { useToast } from '@/lib/toast';
+import { fetchJson, fetchJsonPost, getErrorMessage } from '@/lib/fetchJson';
 
 interface Customer {
   id: string; name: string; phone: string; email: string; address: string;
@@ -15,25 +17,28 @@ function formatRp(n: number) {
 }
 
 export default function CustomersPage() {
+  const toast = useToast();
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [loading, setLoading]     = useState(true);
+  const [search, setSearch]       = useState('');
   const [typeFilter, setTypeFilter] = useState('');
-  const [modal, setModal] = useState<'add' | 'edit' | null>(null);
-  const [form, setForm] = useState<Partial<Customer & { notes: string }>>(EMPTY);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [modal, setModal]         = useState<'add' | 'edit' | null>(null);
+  const [form, setForm]           = useState<Partial<Customer & { notes: string }>>(EMPTY);
+  const [saving, setSaving]       = useState(false);
+  const [error, setError]         = useState('');
 
   const fetchCustomers = useCallback(async () => {
     setLoading(true);
-    const params = new URLSearchParams();
-    if (search) params.set('search', search);
-    if (typeFilter) params.set('type', typeFilter);
-    const res = await fetch(`/api/customers?${params}`);
-    const data = await res.json();
-    setCustomers(data.customers || []);
-    setLoading(false);
-  }, [search, typeFilter]);
+    try {
+      const params = new URLSearchParams();
+      if (search) params.set('search', search);
+      if (typeFilter) params.set('type', typeFilter);
+      const data = await fetchJson<{ customers: Customer[] }>(`/api/customers?${params}`);
+      setCustomers(data.customers || []);
+    } catch (err) {
+      toast.error('Gagal memuat pelanggan', getErrorMessage(err));
+    } finally { setLoading(false); }
+  }, [search, typeFilter, toast]);
 
   useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
 
@@ -41,24 +46,28 @@ export default function CustomersPage() {
   function openEdit(c: Customer) { setForm(c); setError(''); setModal('edit'); }
 
   async function handleSave() {
+    if (!form.name?.trim()) { setError('Nama pelanggan tidak boleh kosong'); return; }
     setSaving(true); setError('');
     try {
       const method = modal === 'edit' ? 'PUT' : 'POST';
-      const url = modal === 'edit' ? `/api/customers/${form.id}` : '/api/customers';
-      const res = await fetch(url, {
-        method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form),
-      });
-      if (!res.ok) throw new Error((await res.json()).error);
-      setModal(null); fetchCustomers();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Gagal menyimpan');
+      const url    = modal === 'edit' ? `/api/customers/${form.id}` : '/api/customers';
+      await fetchJsonPost(url, form, method as 'POST' | 'PUT');
+      setModal(null);
+      toast.success(modal === 'edit' ? 'Data pelanggan diperbarui' : 'Pelanggan baru ditambahkan');
+      fetchCustomers();
+    } catch (err) {
+      setError(getErrorMessage(err, 'Gagal menyimpan'));
     } finally { setSaving(false); }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Nonaktifkan pelanggan ini?')) return;
-    await fetch(`/api/customers/${id}`, { method: 'DELETE' });
-    fetchCustomers();
+  async function handleDelete(id: string, name: string) {
+    const ok = await toast.confirm({ title: 'Nonaktifkan Pelanggan', message: `Yakin ingin menonaktifkan "${name}"?`, confirmText: 'Ya, Nonaktifkan', danger: true });
+    if (!ok) return;
+    try {
+      await fetchJson(`/api/customers/${id}`, { method: 'DELETE' });
+      toast.success('Pelanggan dinonaktifkan');
+      fetchCustomers();
+    } catch (err) { toast.error('Gagal menonaktifkan', getErrorMessage(err)); }
   }
 
   const inp = (key: string, label: string, type = 'text') => (
@@ -79,17 +88,12 @@ export default function CustomersPage() {
         <button className="btn-primary" onClick={openAdd}>+ Tambah Pelanggan</button>
       </div>
 
-      {/* Type summary */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
         {TYPES.map(t => (
           <div key={t} className="card" style={{ padding: '16px 20px', cursor: 'pointer', border: typeFilter === t ? '2px solid #b8860b' : undefined }}
             onClick={() => setTypeFilter(typeFilter === t ? '' : t)}>
-            <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#78716c', marginBottom: '8px' }}>
-              {t.charAt(0).toUpperCase() + t.slice(1)}
-            </div>
-            <div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#1c1917' }}>
-              {customers.filter(c => c.customer_type === t).length}
-            </div>
+            <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#78716c', marginBottom: '8px' }}>{t.charAt(0).toUpperCase() + t.slice(1)}</div>
+            <div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#1c1917' }}>{customers.filter(c => c.customer_type === t).length}</div>
           </div>
         ))}
       </div>
@@ -125,7 +129,7 @@ export default function CustomersPage() {
                 <td>
                   <div style={{ display: 'flex', gap: '6px' }}>
                     <button onClick={() => openEdit(c)} style={{ background: '#fef3c7', border: 'none', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer', fontSize: '0.75rem', color: '#92400e' }}>Edit</button>
-                    <button onClick={() => handleDelete(c.id)} className="btn-danger" style={{ padding: '6px 10px', fontSize: '0.75rem' }}>Hapus</button>
+                    <button onClick={() => handleDelete(c.id, c.name)} className="btn-danger" style={{ padding: '6px 10px', fontSize: '0.75rem' }}>Hapus</button>
                   </div>
                 </td>
               </tr>
@@ -139,13 +143,11 @@ export default function CustomersPage() {
         <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setModal(null); }}>
           <div className="modal">
             <div className="modal-header">
-              <h2 style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: '1.5rem', fontWeight: 600 }}>
-                {modal === 'add' ? 'Tambah Pelanggan Baru' : 'Edit Pelanggan'}
-              </h2>
+              <h2 style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: '1.5rem', fontWeight: 600 }}>{modal === 'add' ? 'Tambah Pelanggan Baru' : 'Edit Pelanggan'}</h2>
               <button onClick={() => setModal(null)} style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#78716c' }}>✕</button>
             </div>
             <div className="modal-body">
-              {error && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '12px', color: '#dc2626', marginBottom: '16px', fontSize: '0.85rem' }}>{error}</div>}
+              {error && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '12px', color: '#dc2626', marginBottom: '16px', fontSize: '0.85rem' }}>⚠ {error}</div>}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                 {inp('name', 'Nama Pelanggan')}
                 {inp('phone', 'Nomor Telepon', 'tel')}
@@ -163,7 +165,7 @@ export default function CustomersPage() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">Catatan</label>
-                  <input className="form-input" value={form.notes || ''} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} />
+                  <input className="form-input" value={(form as Record<string, unknown>).notes as string || ''} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} />
                 </div>
               </div>
             </div>

@@ -42,6 +42,7 @@ export default function SalesPage() {
   const [dueDate, setDueDate]             = useState('');
   const [notes, setNotes]                 = useState('');
   const [discountAmount, setDiscountAmount] = useState(0);
+  const [downPayment, setDownPayment]       = useState(0);
   const [saving, setSaving]               = useState(false);
   const [error, setError]                 = useState('');
   const [viewSale, setViewSale]           = useState<Sale | null>(null);
@@ -116,6 +117,7 @@ export default function SalesPage() {
           customer_id: selectedCustomer || null,
           items, payment_method: paymentMethod,
           discount_amount: discountAmount,
+          down_payment: downPayment > 0 ? downPayment : undefined,
           due_date: dueDate || null,
           notes,
         }),
@@ -342,6 +344,32 @@ export default function SalesPage() {
                   <div className="form-group" style={{ marginTop: '10px', marginBottom: 0 }}>
                     <label className="form-label" style={{ color: '#92400e' }}>Jatuh Tempo (opsional)</label>
                     <input type="date" className="form-input" value={dueDate} onChange={e => setDueDate(e.target.value)} style={{ width: '180px' }} />
+                  </div>
+                </div>
+              )}
+
+              {(paymentMethod === 'cash' || paymentMethod === 'transfer') && (
+                <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '0.83rem', color: '#92400e' }}>
+                  <div style={{ fontWeight: 700, marginBottom: '8px' }}>💰 DP / Uang Muka (Opsional)</div>
+                  <div style={{ fontSize: '0.8rem', color: '#78716c', marginBottom: '10px' }}>
+                    Jika customer membayar sebagian sebagai DP, isi kolom di bawah.
+                    Piutang akan <strong>otomatis dibuat</strong> dengan tipe DP dan cicilan pertama sudah tercatat.
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <div className="form-group" style={{ marginBottom: 0, flex: 1, minWidth: '160px' }}>
+                      <label className="form-label" style={{ color: '#92400e' }}>Jumlah DP (Rp)</label>
+                      <input type="number" className="form-input" placeholder="0 jika tidak ada DP"
+                        value={downPayment || ''} onChange={e => setDownPayment(parseFloat(e.target.value) || 0)}
+                        style={{ width: '100%' }} />
+                    </div>
+                    {downPayment > 0 && downPayment < total && (
+                      <div style={{ background: '#dcfce7', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '10px 14px', flex: 1, minWidth: '160px' }}>
+                        <div style={{ fontSize: '0.75rem', color: '#166534', fontWeight: 600 }}>Sisa Tagihan</div>
+                        <div style={{ fontWeight: 700, color: '#166534', fontSize: '1rem' }}>
+                          {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(total - downPayment)}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

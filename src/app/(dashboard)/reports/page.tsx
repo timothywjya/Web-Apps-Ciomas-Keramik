@@ -1,5 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
+import { useToast } from '@/lib/toast';
+import { fetchJson, getErrorMessage } from '@/lib/fetchJson';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
 
 interface ReportData {
@@ -20,6 +22,7 @@ const REPORT_TYPES = [
 ];
 
 export default function ReportsPage() {
+  const toast = useToast();
   const [reportType, setReportType] = useState('monthly');
   const [from, setFrom] = useState(() => {
     const d = new Date();
@@ -32,12 +35,16 @@ export default function ReportsPage() {
 
   const fetchReport = useCallback(async () => {
     setLoading(true);
-    const params = new URLSearchParams({ type: reportType, from, to });
-    const res = await fetch(`/api/reports?${params}`);
-    const json = await res.json();
-    setData(json.data || []);
-    setLoading(false);
-  }, [reportType, from, to]);
+    try {
+      const params = new URLSearchParams({ type: reportType, from, to });
+      const json = await fetchJson<Record<string,unknown>>(`/api/reports?${params}`);
+      setData((json.data || []) as ReportData[]);
+    } catch (err) {
+      toast.error('Gagal memuat laporan', getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [reportType, from, to, toast]);
 
   useEffect(() => { fetchReport(); }, [fetchReport]);
 
