@@ -79,4 +79,22 @@ export const UserRepository = {
     await dbQuery(`UPDATE users SET last_login=NOW() WHERE id=$1`, [id]);
   },
 
+  async softDelete(id: string): Promise<void> {
+    await dbQuery(
+      `UPDATE users SET deleted_at=NOW(), is_active=false, updated_at=NOW() WHERE id=$1`,
+      [id]
+    );
+  },
+
+  async findAllActive(search = ''): Promise<User[]> {
+    const base = `SELECT id, username, email, full_name, role, phone, is_active, last_login, created_at, updated_at FROM users WHERE deleted_at IS NULL`;
+    if (search) {
+      return dbQuery<User>(
+        `${base} AND (full_name ILIKE $1 OR username ILIKE $1 OR email ILIKE $1) ORDER BY created_at DESC`,
+        [`%${search}%`]
+      );
+    }
+    return dbQuery<User>(`${base} ORDER BY created_at DESC`);
+  },
+
 };

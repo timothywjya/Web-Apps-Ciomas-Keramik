@@ -80,4 +80,33 @@ export const PurchaseRepository = {
     });
   },
 
+  async createPendingWithItems(
+    data : { purchase_number: string; supplier_id?: string; subtotal: number; notes?: string; created_by: string },
+    items: { product_id: string; quantity: number; unit_price: number }[],
+  ): Promise<{ id: string; purchase_number: string }> {
+    return dbTransaction(async (client) => {
+      const { rows } = await client.query<{ id: string; purchase_number: string }>(
+        `INSERT INTO purchases
+           (purchase_number, supplier_id, purchase_date, status,
+            subtotal, total_amount, notes, created_by)
+         VALUES ($1,$2,CURRENT_DATE,'pending',$3,$3,$4,$5)
+         RETURNING id, purchase_number`,
+        [data.purchase_number, data.supplier_id ?? null,
+         data.subtotal, data.notes ?? null, data.created_by],
+      );
+      const po = rows[0];
+      for (const item of items) {
+        await client.query(
+          `INSERT INTO purchase_items
+             (purchase_id, product_id, quantity, unit_price, subtotal, received_quantity)
+           VALUES ($1,$2,$3,$4,$5,0)`,
+          [po.id, item.product_id, item.quantity,
+           item.unit_price, item.quantity * item.unit_price],
+        );
+      }
+      return po;
+    });
+  },
+
+
 };

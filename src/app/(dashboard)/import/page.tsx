@@ -184,9 +184,8 @@ function ImportPanel() {
       const fd = new FormData(); fd.append('file', file);
       const res  = await fetch(`/api/import?target=${target}`, { method: 'POST', body: fd });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? 'Import gagal');
-      setResult(json.result);
-      setFile(null);
+      const data = await res.json(); // baca sekali
+if (!res.ok) throw new Error(data.error || 'Gagal');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Import gagal');
     } finally {

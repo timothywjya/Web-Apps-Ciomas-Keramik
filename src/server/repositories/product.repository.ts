@@ -12,7 +12,7 @@ export const ProductRepository = {
 
   async findAll(filter: ProductFilter = {}): Promise<Product[]> {
     const params: unknown[] = [];
-    const conditions: string[] = ['1=1'];
+    const conditions: string[] = ['p.deleted_at IS NULL'];
 
     if (filter.active !== undefined) conditions.push(`p.is_active = ${filter.active}`);
     if (filter.search) {
@@ -110,6 +110,13 @@ export const ProductRepository = {
     await dbQuery(
       `UPDATE products SET is_active=$1, updated_at=NOW() WHERE id=$2`,
       [is_active, id]
+    );
+  },
+
+  async softDelete(id: string): Promise<void> {
+    await dbQuery(
+      `UPDATE products SET deleted_at=NOW(), is_active=false, updated_at=NOW() WHERE id=$1`,
+      [id]
     );
   },
 

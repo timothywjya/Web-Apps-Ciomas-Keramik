@@ -1,7 +1,15 @@
 'use client';
+/**
+ * Toast / Alert System — Ciomas Keramik
+ * Tidak memerlukan dependency eksternal.
+ * Gunakan: toast.success('...') | toast.error('...') | toast.warning('...') | toast.info('...')
+ * Untuk konfirmasi: await toast.confirm('Judul', 'Pesan')
+ */
+
 import { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
+// ─── Types ────────────────────────────────────────────────────────────────────
 type ToastType = 'success' | 'error' | 'warning' | 'info';
 
 interface ToastItem {
@@ -28,14 +36,17 @@ interface ToastContextValue {
   confirm : (options: ConfirmOptions) => Promise<boolean>;
 }
 
+// ─── Context ──────────────────────────────────────────────────────────────────
 const ToastContext = createContext<ToastContextValue | null>(null);
 
+// ─── Hook ─────────────────────────────────────────────────────────────────────
 export function useToast(): ToastContextValue {
   const ctx = useContext(ToastContext);
   if (!ctx) throw new Error('useToast harus digunakan di dalam <ToastProvider>');
   return ctx;
 }
 
+// ─── Singleton fallback (untuk penggunaan di luar React tree) ─────────────────
 let _singleton: ToastContextValue | null = null;
 export function setToastSingleton(ctx: ToastContextValue) { _singleton = ctx; }
 export const toast = {
@@ -46,6 +57,7 @@ export const toast = {
   confirm : (options: ConfirmOptions) => _singleton?.confirm(options) ?? Promise.resolve(false),
 };
 
+// ─── Theme ────────────────────────────────────────────────────────────────────
 const THEME: Record<ToastType, { bg: string; border: string; icon: string; iconBg: string; progress: string }> = {
   success: { bg: '#f0fdf4', border: '#bbf7d0', icon: '✓', iconBg: '#16a34a', progress: '#16a34a' },
   error  : { bg: '#fef2f2', border: '#fecaca', icon: '✕', iconBg: '#dc2626', progress: '#dc2626' },
@@ -53,6 +65,7 @@ const THEME: Record<ToastType, { bg: string; border: string; icon: string; iconB
   info   : { bg: '#eff6ff', border: '#bfdbfe', icon: 'i', iconBg: '#2563eb', progress: '#2563eb' },
 };
 
+// ─── Single Toast Item Component ──────────────────────────────────────────────
 function ToastCard({ item, onRemove }: { item: ToastItem; onRemove: (id: string) => void }) {
   const [visible, setVisible] = useState(false);
   const [progress, setProgress] = useState(100);

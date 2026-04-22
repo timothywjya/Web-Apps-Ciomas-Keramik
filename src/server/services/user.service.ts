@@ -5,7 +5,7 @@ import type { User, CreateUserDto, UpdateUserDto } from '@/types';
 export const UserService = {
 
   async getAll(search = ''): Promise<User[]> {
-    return UserRepository.findAll(search);
+    return UserRepository.findAllActive(search);
   },
 
   async getById(id: string): Promise<User> {

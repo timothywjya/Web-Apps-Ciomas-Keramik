@@ -52,22 +52,27 @@ export default function PurchasesPage() {
   const [bayarDate, setBayarDate]         = useState(new Date().toISOString().split('T')[0]);
   const [bayarMethod, setBayarMethod]     = useState('transfer');
   const [bayarRef, setBayarRef]           = useState('');
+  const [poEmailTo, setPoEmailTo]               = useState('');
+  const [poEmailLoading, setPoEmailLoading]   = useState(false);
   const [bayarNotes, setBayarNotes]       = useState('');
   const [bayarSaving, setBayarSaving]     = useState(false);
   const [bayarError, setBayarError]       = useState('');
 
   const fetchPurchases = useCallback(async () => {
     setLoading(true);
-    const params = new URLSearchParams();
-    if (search) params.set('search', search);
-    const data = await fetchJson<Record<string,unknown>>(`/api/purchases?${params}`);
-    
-    setPurchases((data.purchases || []) as never[]);
-    setLoading(false);
-  } catch (err) {
-    toast.error('Gagal memuat data', getErrorMessage(err));
-    setLoading(false);
-  }, [search]);
+    try {
+      const params = new URLSearchParams();
+      if (search) params.set('search', search);
+      
+      const data = await fetchJson<Record<string,unknown>>(`/api/purchases?${params}`);
+      
+      setPurchases((data.purchases || []) as Purchase[]); // Sebaiknya gunakan tipe yang tepat dibanding 'never[]'
+      setLoading(false);
+    } catch (err) {
+      toast.error('Gagal memuat data', getErrorMessage(err));
+      setLoading(false);
+    }
+  }, [search, toast]);
 
   useEffect(() => { fetchPurchases(); }, [fetchPurchases]);
   useEffect(() => {
@@ -95,6 +100,18 @@ export default function PurchasesPage() {
       updated.subtotal = updated.quantity * updated.unit_price;
       return updated;
     }));
+  }
+
+  async function sendPoEmail() {
+    if (!poEmailTo) { toast.warning('Masukkan email supplier'); return; }
+    if (!viewPurchase) return;
+    setPoEmailLoading(true);
+    try {
+      await fetchJsonPost('/api/email', { type: 'purchase_order', id: viewPurchase.id, to: poEmailTo });
+      toast.success('PO dikirim via email ke ' + poEmailTo);
+      setPoEmailTo('');
+    } catch (err) { toast.error('Gagal kirim email', getErrorMessage(err)); }
+    finally { setPoEmailLoading(false); }
   }
 
   const total = items.reduce((s, i) => s + i.subtotal, 0);
@@ -208,10 +225,15 @@ export default function PurchasesPage() {
                 <td style={{ fontSize: '0.85rem', color: '#78716c' }}>{p.created_by_name || '—'}</td>
                 <td style={{ fontSize: '0.8rem', color: '#a8a29e' }}>{fmtDate(p.purchase_date)}</td>
                 <td>
-                  <button onClick={() => openHutang(p)}
-                    style={{ background: p.paid_amount >= p.total_amount ? '#f0fdf4' : '#fef3c7', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.75rem', color: p.paid_amount >= p.total_amount ? '#166534' : '#92400e', fontWeight: 600 }}>
-                    🏦 Hutang
-                  </button>
+                  <div style={{ display:'flex', gap:'6px', alignItems:'center' }}>
+                    <button onClick={() => openHutang(p)}
+                      style={{ background: p.paid_amount >= p.total_amount ? '#f0fdf4' : '#fef3c7', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.75rem', color: p.paid_amount >= p.total_amount ? '#166534' : '#92400e', fontWeight: 600 }}>
+                      🏦 Hutang
+                    </button>
+                    <a href="/goods-receipt" style={{ background: '#f0fdf4', border: 'none', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer', fontSize: '0.75rem', color: '#166534', fontWeight: 600, textDecoration: 'none' }}>
+                      📦 BPB
+                    </a>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -464,6 +486,17 @@ export default function PurchasesPage() {
                   )}
                 </>
               )}
+            </div>
+
+            {/* Email PO to Supplier */}
+            <div style={{ padding: '0 20px 20px' }}>
+              <div style={{ padding: '12px 14px', background: '#f9f8f7', borderRadius: '8px' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#a8a29e', marginBottom: '8px' }}>📧 Kirim PO via Email ke Supplier</div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input className="form-input" style={{ flex: 1, fontSize: '0.82rem' }} type="email" placeholder="Email supplier..." value={poEmailTo} onChange={e => setPoEmailTo(e.target.value)} />
+                  <button onClick={sendPoEmail} disabled={poEmailLoading} style={{ background: '#1c1917', color: '#d4a843', border: 'none', borderRadius: '8px', padding: '8px 14px', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{poEmailLoading ? 'Mengirim...' : 'Kirim'}</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
