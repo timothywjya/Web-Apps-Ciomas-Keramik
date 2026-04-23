@@ -1,5 +1,7 @@
 'use client';
 import { useState, useRef, useCallback } from 'react';
+import { useToast } from '@/lib/toast';
+import { getErrorMessage } from '@/lib/fetchJson';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -167,14 +169,21 @@ function ImportPanel() {
   }
 
   async function downloadTemplate() {
-    const res  = await fetch(`/api/import?target=${target}`);
-    const blob = await res.blob();
-    const url  = URL.createObjectURL(blob);
-    const a    = Object.assign(document.createElement('a'), {
-      href: url, download: `template_import_${target}.csv`,
-    });
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      let res: Response;
+      try { res = await fetch(`/api/import?target=${target}`); }
+      catch (netErr) { throw new Error(getErrorMessage(netErr, 'Koneksi gagal')); }
+      if (!res.ok) throw new Error(`Gagal mengunduh template (${res.status})`);
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = Object.assign(document.createElement('a'), {
+        href: url, download: `template_import_${target}.csv`,
+      });
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error('Gagal mengunduh template', getErrorMessage(err, 'Coba lagi'));
+    }
   }
 
   async function handleImport() {
@@ -182,13 +191,14 @@ function ImportPanel() {
     setLoading(true); setError(''); setResult(null);
     try {
       const fd = new FormData(); fd.append('file', file);
-      const res  = await fetch(`/api/import?target=${target}`, { method: 'POST', body: fd });
-      const json = await res.json();
-      const data = await res.json(); // baca sekali
-if (!res.ok) throw new Error(data.error || 'Gagal');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Import gagal');
-    } finally {
+      let res: Response;
+      try { res = await fetch(`/api/import?target=${target}`, { method: 'POST', body: fd }); }
+      catch (netErr) { throw new Error(getErrorMessage(netErr, 'Koneksi gagal')); }
+      const json = await res.json() as { error?: string; result?: unknown };
+      if (!res.ok) throw new Error(json.error ?? `Error ${res.status}: Import gagal`);
+      setResult(json.result);
+      setFile(null);
+    } catch (err) { setError(getErrorMessage(err, 'Import gagal')); } finally {
       setLoading(false);
     }
   }
@@ -272,28 +282,34 @@ function SyncPanel() {
   async function handlePreview() {
     setLoading(true); setError(''); setResult(null); setPreview(null);
     try {
-      const res  = await fetch('/api/sync');
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
+      let res: Response;
+      try { res = await fetch('/api/sync'); }
+      catch (netErr) { throw new Error(getErrorMessage(netErr, 'Koneksi gagal')); }
+      if (!res.ok) throw new Error(`Error ${res.status}`);
+      const json = await res.json() as { preview?: unknown; error?: string };
       setPreview(json.preview);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Gagal memuat preview');
-    } finally {
+    } catch (err) { setError(getErrorMessage(err, 'Gagal memuat preview')); } finally {
       setLoading(false);
     }
   }
 
   async function handleMerge() {
-    if (!confirm('Merge semua duplikat? Aksi ini tidak bisa dibatalkan.')) return;
+    const ok = await toast.confirm({
+      title      : 'Konfirmasi Merge Duplikat',
+      message    : 'Merge semua duplikat? Aksi ini tidak bisa dibatalkan.',
+      confirmText: 'Ya, Merge Sekarang',
+      danger     : true,
+    });
+    if (!ok) return;
     setMerging(true); setError('');
     try {
-      const res  = await fetch('/api/sync', { method: 'POST' });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
+      let res: Response;
+      try { res = await fetch('/api/sync', { method: 'POST' }); }
+      catch (netErr) { throw new Error(getErrorMessage(netErr, 'Koneksi gagal')); }
+      if (!res.ok) throw new Error(`Error ${res.status}`);
+      const json = await res.json() as { result?: unknown; error?: string };
       setResult(json.result); setPreview(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Merge gagal');
-    } finally {
+    } catch (err) { setError(getErrorMessage(err, 'Merge gagal')); } finally {
       setMerging(false);
     }
   }
@@ -457,6 +473,7 @@ function SyncPanel() {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ImportSyncPage() {
+  const toast = useToast();
   const [tab, setTab] = useState<'import' | 'sync'>('import');
 
   return (

@@ -165,17 +165,17 @@ function computeStatus(paid: number, total: number, discount: number): LedgerSta
 }
 
 async function syncSalePaidAmount(
-  client : PoolClient,
-  saleId : string,
+  client: PoolClient,
+  saleId: string,
   newPaid: number,
 ): Promise<void> {
   await client.query(
     `UPDATE sales
-     SET    paid_amount    = $1,
+     SET    paid_amount    = $1::numeric,
             payment_status = CASE
-              WHEN $1 <= 0                              THEN 'unpaid'
-              WHEN $1 >= (total_amount - discount_amount) THEN 'paid'
-              ELSE 'partial'
+               WHEN $1::numeric <= 0                            THEN 'unpaid'
+               WHEN $1::numeric >= (total_amount - discount_amount) THEN 'paid'
+               ELSE 'partial'
             END,
             updated_at = NOW()
      WHERE  id = $2`,

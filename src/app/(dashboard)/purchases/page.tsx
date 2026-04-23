@@ -63,13 +63,11 @@ export default function PurchasesPage() {
     try {
       const params = new URLSearchParams();
       if (search) params.set('search', search);
-      
       const data = await fetchJson<Record<string,unknown>>(`/api/purchases?${params}`);
-      
-      setPurchases((data.purchases || []) as Purchase[]); // Sebaiknya gunakan tipe yang tepat dibanding 'never[]'
-      setLoading(false);
+      setPurchases((data.purchases || []) as never[]);
     } catch (err) {
-      toast.error('Gagal memuat data', getErrorMessage(err));
+      toast.error('Gagal memuat pembelian', getErrorMessage(err));
+    } finally {
       setLoading(false);
     }
   }, [search, toast]);
@@ -120,7 +118,7 @@ export default function PurchasesPage() {
     if (items.length === 0) { setError('Tambahkan minimal 1 produk'); return; }
     setSaving(true); setError('');
     try {
-      const json = await fetchJsonPost<Record<string,unknown>>('/api/purchases', {}, 'POST');
+      const json = await fetchJsonPost<Record<string,unknown>>('/api/purchases', { supplier_id: selectedSupplier || null, items, notes });
       setModal(null);
       fetchPurchases();
     } catch (err) { setError(getErrorMessage(err, 'Gagal menyimpan')); } finally { setSaving(false); }
@@ -137,14 +135,19 @@ export default function PurchasesPage() {
     setBayarMethod('transfer'); setBayarError('');
     setModal('hutang');
     setHutangLoading(true);
+    
     try {
-      const data = await fetchJson<Record<string,unknown>>(`/api/payables?search=${encodeURIComponent(po.purchase_number)}`);
-      const found: Payable | undefined = (data.payables || []).find(
-        (h: Payable) => h.po_number === po.purchase_number
+      // Mencari data Payable
+      const data = await fetchJson<{ payables: Payable[] }>(`/api/payables?search=${encodeURIComponent(po.purchase_number)}`);
+      
+      const found = (data.payables || []).find(
+        (h) => h.po_number === po.purchase_number
       );
+      
       if (found) {
         setHutang(found);
-        const pd = await fetchJson<Record<string,unknown>>(`/api/payables/${found.id}`);
+        // Menggunakan interface PayablePayment yang sudah Anda definisikan di atas
+        const pd = await fetchJson<{ payments: PayablePayment[] }>(`/api/payables/${found.id}`);
         setHutangPayments(pd.payments || []);
       }
     } finally {
@@ -153,20 +156,35 @@ export default function PurchasesPage() {
   }
 
   async function handleTambahBayar() {
-    if (!hutang) return;
-    const amt = parseFloat(bayarAmount);
-    if (!amt || amt <= 0) { setBayarError('Jumlah harus lebih dari 0'); return; }
-    setBayarSaving(true); setBayarError('');
+  if (!hutang) return;
+  const amt = parseFloat(bayarAmount);
+  if (!amt || amt <= 0) { setBayarError('Jumlah harus lebih dari 0'); return; }
+  
+  setBayarSaving(true); 
+  setBayarError('');
+  
     try {
-      const data = await fetchJsonPost<Record<string,unknown>>(`/api/payables/${hutang.id}`, {}, 'POST');
+      const data = await fetchJsonPost<{ payable: Payable }>(`/api/payables/${hutang.id}`, {
+        amount: amt, 
+        payment_date: bayarDate,
+        payment_method: bayarMethod, 
+        reference_no: bayarRef || null, 
+        notes: bayarNotes || null,
+      });
+      
       setHutang(data.payable);
-      const pd = await fetchJson<Record<string,unknown>>(`/api/payables/${hutang.id}`);
+      
+      const pd = await fetchJson<{ payments: PayablePayment[] }>(`/api/payables/${hutang.id}`);
       setHutangPayments(pd.payments || []);
+      
       setShowAddBayar(false);
-      setBayarAmount(''); setBayarRef(''); setBayarNotes('');
+      setBayarAmount(''); 
+      setBayarRef(''); 
+      setBayarNotes('');
       fetchPurchases();
-    } catch (e) {
-      setBayarError(e instanceof Error ? e.message : 'Gagal menyimpan');
+      
+    } catch (err) { 
+      setBayarError(getErrorMessage(err, 'Gagal menyimpan'));
     } finally {
       setBayarSaving(false);
     }

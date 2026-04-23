@@ -1,5 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
+import { useToast } from '@/lib/toast';
+import { fetchJson, fetchJsonPost, getErrorMessage } from '@/lib/fetchJson';
 
 // =============================================================================
 // Hutang — Kewajiban Ciomas Keramik ke Supplier
@@ -146,6 +148,7 @@ function ProgressBar({ paid, total, discount }: { paid: number; total: number; d
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function PayablesPage() {
+  const toast = useToast();
   const [list,         setList]         = useState<Payable[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [search,       setSearch]       = useState('');
@@ -174,35 +177,44 @@ export default function PayablesPage() {
 
   // ── Fetch Suppliers ─────────────────────────────────────────────────────────
   useEffect(() => {
-    fetch('/api/suppliers').then(r => r.json()).then(d => setSuppliers(d.suppliers ?? []));
+    fetchJson<Record<string,unknown>>('/api/suppliers').then(d=>setSuppliers((d.suppliers||[]) as never[])).catch(()=>{});
   }, []);
 
   // ── Fetch Hutang List ───────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const p = new URLSearchParams();
-    if (search)       p.set('search', search);
-    if (statusFilter) p.set('status', statusFilter);
-    if (sourceFilter) p.set('source', sourceFilter);
-    const [r1, r2] = await Promise.all([
-      fetch(`/api/payables?${p}`).then(r => r.json()),
-      fetch('/api/payables?summary=1').then(r => r.json()),
-    ]);
-    setList(r1.payables ?? []);
-    setSummary(r2.summary ?? { total_outstanding: 0, total_overdue: 0, count: 0 });
-    setLoading(false);
-  }, [search, statusFilter, sourceFilter]);
+    try {
+      const p = new URLSearchParams();
+      if (search)       p.set('search', search);
+      if (statusFilter) p.set('status', statusFilter);
+      if (sourceFilter) p.set('source', sourceFilter);
+      const [r1, r2] = await Promise.all([
+        fetchJson<Record<string,unknown>>(`/api/payables?${p}`),
+        fetchJson<Record<string,unknown>>('/api/payables?summary=1'),
+      ]);
+      setList(r1.payables ?? []);
+      setSummary(r2.summary ?? { total_outstanding: 0, total_overdue: 0, count: 0 });
+    } catch (err) {
+      toast.error('Gagal memuat data', getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [search, statusFilter, sourceFilter, toast]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
   // ── Open Detail ─────────────────────────────────────────────────────────────
   async function openDetail(id: string) {
     setError('');
-    const r = await fetch(`/api/payables/${id}`).then(r => r.json());
-    if (!r.payable) return;
-    setDetail({ pay: r.payable, payments: r.payments ?? [] });
-    setDiscountVal(String(r.payable.discount_amount));
-    setPayForm(p => ({ ...p, amount: '', bank_name: '', reference_no: '', notes: '' }));
+    try {
+      const r = await fetchJson<Record<string,unknown>>(`/api/payables/${id}`);
+      if (!r.payable) return;
+      setDetail({ pay: r.payable, payments: r.payments ?? [] });
+      setDiscountVal(String(r.payable.discount_amount));
+      setPayForm(p => ({ ...p, amount: '', bank_name: '', reference_no: '', notes: '' }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal memuat detail hutang');
+    }
   }
 
   // ── Catat Pembayaran ke Supplier ────────────────────────────────────────────
@@ -210,18 +222,19 @@ export default function PayablesPage() {
     if (!detail || !payForm.amount) return;
     setSaving(true); setError('');
     try {
-      const res  = await fetch(`/api/payables/${detail.pay.id}`, {
-        method : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body   : JSON.stringify({ ...payForm, amount: parseFloat(payForm.amount) }),
+      const json = await fetchJsonPost<Record<string,unknown>>(`/api/payables/${detail.pay.id}`, {
+        amount        : parseFloat(payForm.amount),
+        payment_date  : payForm.payment_date,
+        payment_method: payForm.payment_method,
+        bank_name     : payForm.bank_name     || null,
+        reference_no  : payForm.reference_no  || null,
+        notes         : payForm.notes         || null,
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
-      setDetail({ pay: json.payable, payments: [...detail.payments, json.payment] });
+      setDetail({ pay: json.payable as never, payments: [...detail.payments, json.payment as never] });
       setPayForm(p => ({ ...p, amount: '', bank_name: '', reference_no: '', notes: '' }));
       fetchAll();
-    } catch (e) { setError(e instanceof Error ? e.message : 'Gagal menyimpan'); }
-    finally     { setSaving(false); }
+    } catch (err) { setError(getErrorMessage(err, 'Gagal menyimpan pembayaran')); }
+    finally { setSaving(false); }
   }
 
   // ── Update Diskon ───────────────────────────────────────────────────────────
@@ -229,17 +242,13 @@ export default function PayablesPage() {
     if (!detail) return;
     setSaving(true); setError('');
     try {
-      const res  = await fetch(`/api/payables/${detail.pay.id}`, {
-        method : 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body   : JSON.stringify({ discount_amount: parseFloat(discountVal) || 0 }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
-      setDetail(d => d ? { ...d, pay: json.payable } : null);
+      const json = await fetchJsonPost<Record<string,unknown>>(`/api/payables/${detail.pay.id}`, {
+        discount_amount: parseFloat(discountVal) || 0,
+      }, 'PATCH');
+      setDetail(d => d ? { ...d, pay: json.payable as never } : null);
       fetchAll();
-    } catch (e) { setError(e instanceof Error ? e.message : 'Gagal'); }
-    finally     { setSaving(false); }
+    } catch (err) { setError(getErrorMessage(err, 'Gagal update diskon')); }
+    finally { setSaving(false); }
   }
 
   // ── Manual Entry ────────────────────────────────────────────────────────────
@@ -251,37 +260,17 @@ export default function PayablesPage() {
     }
     setManualSaving(true); setManualError('');
     try {
-      const res  = await fetch('/api/payables', {
-        method : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body   : JSON.stringify({
-          po_number      : manualForm.po_number,
-          po_date        : manualForm.po_date,
-          supplier_id    : manualForm.supplier_id    || undefined,
-          due_date       : manualForm.due_date        || undefined,
-          ref_number     : manualForm.ref_number      || undefined,
-          total_amount   : parseFloat(manualForm.total_amount),
-          discount_amount: parseFloat(manualForm.discount_amount || '0'),
-          notes          : manualForm.notes,
-          source         : 'manual',
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
+      const json = await fetchJsonPost<Record<string,unknown>>('/api/payables', manualPayload, 'POST');
 
       // Jika ada DP / uang muka, langsung catat sebagai cicilan pertama
       const dpAmt = parseFloat(manualForm.dp_amount || '0');
       if (dpAmt > 0 && json.payable?.id) {
-        await fetch(`/api/payables/${json.payable.id}`, {
-          method : 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body   : JSON.stringify({
+        await fetchJsonPost(`/api/payables/${json.payable.id}`, {
             amount        : dpAmt,
             payment_date  : manualForm.po_date,
             payment_method: 'transfer',
             notes         : 'DP / Cicilan Awal (dicatat saat buat hutang)',
-          }),
-        });
+          });
       }
 
       setShowManual(false);
@@ -291,7 +280,7 @@ export default function PayablesPage() {
         discount_amount: '', dp_amount: '', notes: '',
       });
       fetchAll();
-    } catch (e) { setManualError(e instanceof Error ? e.message : 'Gagal'); }
+    } catch (err) { setManualError(getErrorMessage(err, 'Gagal menyimpan hutang')); }
     finally     { setManualSaving(false); }
   }
 

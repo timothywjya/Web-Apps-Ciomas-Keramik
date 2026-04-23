@@ -1,5 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
+import { useToast } from '@/lib/toast';
+import { fetchJson, fetchJsonPost, getErrorMessage } from '@/lib/fetchJson';
 
 interface Sale {
   id: string; invoice_number: string; customer_name: string; customer_id: string;
@@ -29,6 +31,7 @@ function fmtDate(d: string) {
 }
 
 export default function SalesPage() {
+  const toast = useToast();
   const [sales, setSales]                 = useState<Sale[]>([]);
   const [loading, setLoading]             = useState(true);
   const [modal, setModal]                 = useState<'add' | 'view' | 'piutang' | null>(null);
@@ -50,6 +53,8 @@ export default function SalesPage() {
   // Piutang state
   const [piutang, setPiutang]             = useState<Receivable | null>(null);
   const [piutangPayments, setPiutangPayments] = useState<ReceivablePayment[]>([]);
+  const [sendEmailTo, setSendEmailTo]           = useState('');
+  const [emailLoading, setEmailLoading]         = useState(false);
   const [piutangLoading, setPiutangLoading]   = useState(false);
   const [showAddCicilan, setShowAddCicilan]   = useState(false);
   const [cicilanAmount, setCicilanAmount]     = useState('');
@@ -62,19 +67,23 @@ export default function SalesPage() {
 
   const fetchSales = useCallback(async () => {
     setLoading(true);
-    const params = new URLSearchParams();
-    if (search) params.set('search', search);
-    if (statusFilter) params.set('status', statusFilter);
-    const res = await fetch(`/api/sales?${params}`);
-    const data = await res.json();
-    setSales(data.sales || []);
-    setLoading(false);
+    try {
+      const params = new URLSearchParams();
+      if (search) params.set('search', search);
+      if (statusFilter) params.set('status', statusFilter);
+      const data = await fetchJson<Record<string,unknown>>(`/api/sales?${params}`);
+      setSales(data.sales || []);
+    } catch (err) {
+      toast.error('Gagal memuat data', getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
   }, [search, statusFilter]);
 
   useEffect(() => { fetchSales(); }, [fetchSales]);
   useEffect(() => {
-    fetch('/api/customers').then(r => r.json()).then(d => setCustomers(d.customers || []));
-    fetch('/api/products?active=1').then(r => r.json()).then(d => setProducts(d.products || []));
+    fetchJson<Record<string,unknown>>('/api/customers').then(d=>setCustomers((d.customers||[]) as never[])).catch(()=>{});
+    fetchJson<Record<string,unknown>>('/api/products?active=1').then(d=>setProducts((d.products||[]) as never[])).catch(()=>{});
   }, []);
 
   function openAdd() {
@@ -110,23 +119,11 @@ export default function SalesPage() {
     if (items.length === 0) { setError('Tambahkan minimal 1 produk'); return; }
     setSaving(true); setError('');
     try {
-      const res = await fetch('/api/sales', {
-        method : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body   : JSON.stringify({
-          customer_id: selectedCustomer || null,
-          items, payment_method: paymentMethod,
-          discount_amount: discountAmount,
-          down_payment: downPayment > 0 ? downPayment : undefined,
-          due_date: dueDate || null,
-          notes,
-        }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error);
+      const json = await fetchJsonPost<Record<string,unknown>>('/api/sales', { customer_id: selectedCustomer || null, payment_method: paymentMethod, discount_amount: discountAmount, down_payment: downPayment, due_date: dueDate || null, notes, items });
       setModal(null);
       fetchSales();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Gagal menyimpan');
+    } catch (err) {
+      setError(getErrorMessage(err, 'Gagal menyimpan'));
     } finally {
       setSaving(false);
     }
@@ -145,16 +142,14 @@ export default function SalesPage() {
     setPiutangLoading(true);
     try {
       // Cari piutang berdasarkan sale (via receivables list, filter by invoice)
-      const res  = await fetch(`/api/receivables?search=${encodeURIComponent(sale.invoice_number)}`);
-      const data = await res.json();
+      const data = await fetchJson<Record<string,unknown>>(`/api/receivables?search=${encodeURIComponent(sale.invoice_number)}`);
       const found: Receivable | undefined = (data.receivables || []).find(
         (r: Receivable) => r.invoice_number === sale.invoice_number
       );
       if (found) {
         setPiutang(found);
-        const pr   = await fetch(`/api/receivables/${found.id}`);
-        const pd   = await pr.json();
-        setPiutangPayments(pd.payments || []);
+        const pd   = await fetchJson<Record<string,unknown>>(`/api/receivables/${found.id}`);
+        setPiutangPayments((pd.payments || []) as never[]);
       }
     } finally {
       setPiutangLoading(false);
@@ -167,29 +162,16 @@ export default function SalesPage() {
     if (!amt || amt <= 0) { setCicilanError('Jumlah harus lebih dari 0'); return; }
     setCicilanSaving(true); setCicilanError('');
     try {
-      const res = await fetch(`/api/receivables/${piutang.id}`, {
-        method : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body   : JSON.stringify({
-          amount        : amt,
-          payment_date  : cicilanDate,
-          payment_method: cicilanMethod,
-          reference_no  : cicilanRef || undefined,
-          notes         : cicilanNotes || undefined,
-        }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error);
-      const data = await res.json();
+      const data = await fetchJsonPost<Record<string,unknown>>(`/api/receivables/${piutang.id}`, { amount: amt, payment_date: cicilanDate, payment_method: cicilanMethod, reference_no: cicilanRef, notes: cicilanNotes });
       setPiutang(data.receivable);
       // Refresh payments
-      const pr = await fetch(`/api/receivables/${piutang.id}`);
-      const pd = await pr.json();
+      const pd = await fetchJson<Record<string,unknown>>(`/api/receivables/${piutang.id}`);
       setPiutangPayments(pd.payments || []);
       setShowAddCicilan(false);
       setCicilanAmount(''); setCicilanRef(''); setCicilanNotes('');
       fetchSales();
-    } catch (e) {
-      setCicilanError(e instanceof Error ? e.message : 'Gagal menyimpan');
+    } catch (err) {
+      setCicilanError(err instanceof Error ? err.message : 'Gagal menyimpan');
     } finally {
       setCicilanSaving(false);
     }
@@ -199,16 +181,10 @@ export default function SalesPage() {
     if (!viewSale) return;
     setPiutangLoading(true);
     try {
-      const res = await fetch('/api/receivables', {
-        method : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body   : JSON.stringify({ sale_id: viewSale.id }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error);
-      const data = await res.json();
+      const data = await fetchJsonPost<Record<string,unknown>>('/api/receivables', { sale_id: viewSale!.id, payment_type: 'kredit' });
       setPiutang(data.receivable);
-    } catch (e) {
-      setCicilanError(e instanceof Error ? e.message : 'Gagal membuat piutang');
+    } catch (err) {
+      setCicilanError(err instanceof Error ? err.message : 'Gagal membuat piutang');
     } finally {
       setPiutangLoading(false);
     }
@@ -221,6 +197,17 @@ export default function SalesPage() {
   const payBadge = (s: string) => (
     <span className={`badge ${s === 'paid' ? 'badge-success' : s === 'partial' ? 'badge-warning' : 'badge-danger'}`}>{s}</span>
   );
+  async function sendReceiptEmail(sale: Sale) {
+    if (!sendEmailTo) { toast.warning('Masukkan email pelanggan'); return; }
+    setEmailLoading(true);
+    try {
+      await fetchJsonPost('/api/email', { type: 'sale_receipt', id: sale.id, to: sendEmailTo, toName: sale.customer_name });
+      toast.success('Struk dikirim via email ke ' + sendEmailTo);
+      setSendEmailTo('');
+    } catch (err) { toast.error('Gagal kirim email', getErrorMessage(err)); }
+    finally { setEmailLoading(false); }
+  }
+
   const piutangBadge = (s: string) => {
     const map: Record<string, string> = { paid: 'badge-success', partial: 'badge-warning', outstanding: 'badge-danger', overdue: 'badge-danger' };
     const label: Record<string, string> = { paid: 'Lunas', partial: 'Cicilan', outstanding: 'Belum Bayar', overdue: 'Jatuh Tempo' };
@@ -271,6 +258,8 @@ export default function SalesPage() {
                   <td style={{ fontWeight: 600, color: '#1c1917', fontSize: '0.82rem' }}>
                     {s.invoice_number}
                     <button onClick={e => { e.stopPropagation(); window.open(`/api/pdf/sale/${s.id}`, '_blank'); }}
+                      style={{ background:'#f5f5f4', border:'none', borderRadius:'6px', padding:'6px 10px', cursor:'pointer', fontSize:'0.75rem', color:'#57534e' }}>PDF A4</button>
+                    <button onClick={e => { e.stopPropagation(); window.open(`/api/pdf/sale-thermal/${s.id}`, '_blank'); }}
                       style={{ marginLeft: '8px', background: 'none', border: '1px solid #e7e5e4', borderRadius: '5px', padding: '2px 6px', fontSize: '0.68rem', cursor: 'pointer', color: '#57534e' }}>
                       📄
                     </button>
@@ -485,6 +474,20 @@ export default function SalesPage() {
                   </button>
                 </div>
               )}
+              {/* Thermal + Email actions */}
+              <div style={{ marginTop:'16px', padding:'12px 14px', background:'#f9f8f7', borderRadius:'8px' }}>
+                <div style={{ fontSize:'0.75rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', color:'#a8a29e', marginBottom:'10px' }}>Cetak & Kirim</div>
+                <div style={{ display:'flex', gap:'8px', flexWrap:'wrap', marginBottom:'10px' }}>
+                  <button onClick={() => window.open(`/api/pdf/sale/${viewSale.id}`, '_blank')} style={{ background:'#dbeafe', border:'none', borderRadius:'8px', padding:'8px 14px', cursor:'pointer', fontSize:'0.82rem', color:'#1e40af', fontWeight:600 }}>🖨 Struk A4</button>
+                  <button onClick={() => window.open(`/api/pdf/sale-thermal/${viewSale.id}`, '_blank')} style={{ background:'#dcfce7', border:'none', borderRadius:'8px', padding:'8px 14px', cursor:'pointer', fontSize:'0.82rem', color:'#166534', fontWeight:600 }}>🧾 Struk Kasir</button>
+                </div>
+                <div style={{ display:'flex', gap:'8px' }}>
+                  <input className="form-input" style={{ flex:1, fontSize:'0.82rem' }} type="email" placeholder="Email pelanggan..." value={sendEmailTo} onChange={e => setSendEmailTo(e.target.value)} />
+                  <button onClick={() => sendReceiptEmail(viewSale)} disabled={emailLoading} style={{ background:'#1c1917', color:'#d4a843', border:'none', borderRadius:'8px', padding:'8px 14px', cursor:'pointer', fontSize:'0.82rem', fontWeight:600, whiteSpace:'nowrap' }}>
+                    {emailLoading ? '...' : '📧 Kirim'}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
