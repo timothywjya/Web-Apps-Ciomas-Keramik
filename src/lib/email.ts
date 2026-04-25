@@ -1,14 +1,3 @@
-/**
- * Email Service — Ciomas Keramik
- * Menggunakan Nodemailer (SMTP).
- * Konfigurasi di .env:
- *   EMAIL_HOST=smtp.gmail.com
- *   EMAIL_PORT=587
- *   EMAIL_USER=your@gmail.com
- *   EMAIL_PASS=your_app_password
- *   EMAIL_FROM="Ciomas Keramik <noreply@ciomaskeramik.com>"
- *   EMAIL_ENABLED=true
- */
 
 import nodemailer from 'nodemailer';
 import { dbQuery } from '@/server/repositories/base.repository';
