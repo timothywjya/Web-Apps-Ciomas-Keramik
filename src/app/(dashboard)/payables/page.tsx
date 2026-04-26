@@ -2,15 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/lib/toast';
 import { fetchJson, fetchJsonPost, getErrorMessage } from '@/lib/fetchJson';
-
-// =============================================================================
-// Hutang — Kewajiban Ciomas Keramik ke Supplier
-// Sumber:
-//   1. AUTO  → Purchase Order (PO) — muncul otomatis setiap PO dibuat
-//   2. MANUAL → Rekapan pribadi tanpa PO di sistem
-// =============================================================================
-
-// ─── Types ────────────────────────────────────────────────────────────────────
+import { PayablePayment } from '@/types';
 
 type Payable = {
   id             : string;
@@ -65,7 +57,26 @@ type Supplier = { id: string; name: string; phone?: string; city?: string; };
 
 type Summary = { total_outstanding: number; total_overdue: number; count: number };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+interface PayableListResponse {
+  payables: Payable[]; 
+}
+
+interface PayableSummaryResponse {
+  summary: {
+    total_outstanding: number;
+    total_overdue: number;
+    count: number;
+  };
+}
+
+interface PayableDetailResponse {
+  payable: Payable;
+  payments: PayablePayment[]; 
+}
+
+interface CreatePayableResponse {
+  payable: Payable;
+}
 
 const rp = (n: number) =>
   new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n || 0);
@@ -180,7 +191,6 @@ export default function PayablesPage() {
     fetchJson<Record<string,unknown>>('/api/suppliers').then(d=>setSuppliers((d.suppliers||[]) as never[])).catch(()=>{});
   }, []);
 
-  // ── Fetch Hutang List ───────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
@@ -188,12 +198,17 @@ export default function PayablesPage() {
       if (search)       p.set('search', search);
       if (statusFilter) p.set('status', statusFilter);
       if (sourceFilter) p.set('source', sourceFilter);
+      
+      // Gunakan interface yang sesuai untuk setiap pemanggilan
       const [r1, r2] = await Promise.all([
-        fetchJson<Record<string,unknown>>(`/api/payables?${p}`),
-        fetchJson<Record<string,unknown>>('/api/payables?summary=1'),
+        fetchJson<PayableListResponse>(`/api/payables?${p}`),
+        fetchJson<PayableSummaryResponse>('/api/payables?summary=1'),
       ]);
+
+      // TypeScript sekarang tahu r1.payables dan r2.summary ada
       setList(r1.payables ?? []);
       setSummary(r2.summary ?? { total_outstanding: 0, total_overdue: 0, count: 0 });
+      
     } catch (err) {
       toast.error('Gagal memuat data', getErrorMessage(err));
     } finally {
@@ -207,11 +222,27 @@ export default function PayablesPage() {
   async function openDetail(id: string) {
     setError('');
     try {
-      const r = await fetchJson<Record<string,unknown>>(`/api/payables/${id}`);
+      // Gunakan interface PayableDetailResponse
+      const r = await fetchJson<PayableDetailResponse>(`/api/payables/${id}`);
+      
+      // TypeScript sekarang tahu bahwa r.payable dan r.payments valid
       if (!r.payable) return;
-      setDetail({ pay: r.payable, payments: r.payments ?? [] });
+      
+      setDetail({ 
+        pay: r.payable, 
+        payments: r.payments ?? [] 
+      });
+      
       setDiscountVal(String(r.payable.discount_amount));
-      setPayForm(p => ({ ...p, amount: '', bank_name: '', reference_no: '', notes: '' }));
+      
+      setPayForm(p => ({ 
+        ...p, 
+        amount: '', 
+        bank_name: '', 
+        reference_no: '', 
+        notes: '' 
+      }));
+      
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal memuat detail hutang');
     }
@@ -258,19 +289,35 @@ export default function PayablesPage() {
       setManualError('Total hutang harus lebih dari 0');
       return;
     }
-    setManualSaving(true); setManualError('');
-    try {
-      const json = await fetchJsonPost<Record<string,unknown>>('/api/payables', manualPayload, 'POST');
 
-      // Jika ada DP / uang muka, langsung catat sebagai cicilan pertama
+    const manualPayload = {
+      po_number: manualForm.po_number,
+      po_date: manualForm.po_date,
+      supplier_id: manualForm.supplier_id,
+      due_date: manualForm.due_date,
+      ref_number: manualForm.ref_number,
+      total_amount: parseFloat(manualForm.total_amount),
+      discount_amount: parseFloat(manualForm.discount_amount || '0'),
+      notes: manualForm.notes,
+    };
+    
+    setManualSaving(true); setManualError('');
+    
+    try {
+      // 1. Simpan data hutang
+      const json = await fetchJsonPost<CreatePayableResponse>('/api/payables', manualPayload, 'POST');
+
+      // 2. Jika ada DP, catat sebagai cicilan pertama
       const dpAmt = parseFloat(manualForm.dp_amount || '0');
+      
+      // Gunakan Optional Chaining (?.) untuk menghindari error jika json.payable null/undefined
       if (dpAmt > 0 && json.payable?.id) {
         await fetchJsonPost(`/api/payables/${json.payable.id}`, {
-            amount        : dpAmt,
-            payment_date  : manualForm.po_date,
-            payment_method: 'transfer',
-            notes         : 'DP / Cicilan Awal (dicatat saat buat hutang)',
-          });
+          amount: dpAmt,
+          payment_date: manualForm.po_date,
+          payment_method: 'transfer',
+          notes: 'DP / Cicilan Awal (dicatat saat buat hutang)',
+        });
       }
 
       setShowManual(false);
@@ -280,8 +327,12 @@ export default function PayablesPage() {
         discount_amount: '', dp_amount: '', notes: '',
       });
       fetchAll();
-    } catch (err) { setManualError(getErrorMessage(err, 'Gagal menyimpan hutang')); }
-    finally     { setManualSaving(false); }
+      
+    } catch (err) { 
+      setManualError(getErrorMessage(err, 'Gagal menyimpan hutang')); 
+    } finally { 
+      setManualSaving(false); 
+    }
   }
 
   const isOverdue   = (p: Payable) =>

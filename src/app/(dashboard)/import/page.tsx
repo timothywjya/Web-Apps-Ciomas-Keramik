@@ -2,8 +2,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { useToast } from '@/lib/toast';
 import { getErrorMessage } from '@/lib/fetchJson';
-
-// ── Types ─────────────────────────────────────────────────────────────────────
+import { toast } from '@/lib/toast';
 
 type Target      = 'categories' | 'suppliers' | 'customers' | 'products';
 type ImportError = { row: number; message: string };
@@ -12,7 +11,20 @@ type DupGroup    = { field: string; value: string; count: number; keep_id: strin
 type SyncPreview = { categories: DupGroup[]; suppliers: DupGroup[]; products: DupGroup[]; total: number };
 type SyncResult  = Record<'categories' | 'suppliers' | 'products', { duplicates_found: number; merged: number }>;
 
-// ── Config ────────────────────────────────────────────────────────────────────
+interface ImportResponse {
+  error?: string;
+  result?: ImportResult; 
+}
+
+interface SyncPreviewResponse {
+  preview?: SyncPreview;
+  error?: string;
+}
+
+interface SyncMergeResponse {
+  result?: SyncResult;
+  error?: string;
+}
 
 const TARGETS: { key: Target; label: string; icon: string; hint: string }[] = [
   { key: 'categories', label: 'Kategori',  icon: '📁', hint: 'name, description' },
@@ -26,8 +38,6 @@ const SYNC_LABELS: Record<string, string> = {
   suppliers : 'Supplier',
   products  : 'Produk',
 };
-
-// ── Shared UI atoms ───────────────────────────────────────────────────────────
 
 const S = {
   card: {
@@ -189,16 +199,30 @@ function ImportPanel() {
   async function handleImport() {
     if (!file) return;
     setLoading(true); setError(''); setResult(null);
+    
     try {
-      const fd = new FormData(); fd.append('file', file);
+      const fd = new FormData(); 
+      fd.append('file', file);
+      
       let res: Response;
-      try { res = await fetch(`/api/import?target=${target}`, { method: 'POST', body: fd }); }
-      catch (netErr) { throw new Error(getErrorMessage(netErr, 'Koneksi gagal')); }
-      const json = await res.json() as { error?: string; result?: unknown };
+      try { 
+        res = await fetch(`/api/import?target=${target}`, { method: 'POST', body: fd }); 
+      } catch (netErr) { 
+        throw new Error(getErrorMessage(netErr, 'Koneksi gagal')); 
+      }
+
+      // Gunakan ImportResponse agar TypeScript tahu tipe result
+      const json = await res.json() as ImportResponse;
+      
       if (!res.ok) throw new Error(json.error ?? `Error ${res.status}: Import gagal`);
-      setResult(json.result);
+      
+      // Sekarang TypeScript tahu json.result adalah ImportResult
+      setResult(json.result ?? null);
       setFile(null);
-    } catch (err) { setError(getErrorMessage(err, 'Import gagal')); } finally {
+      
+    } catch (err) { 
+      setError(getErrorMessage(err, 'Import gagal')); 
+    } finally {
       setLoading(false);
     }
   }
@@ -270,46 +294,50 @@ function ImportPanel() {
   );
 }
 
-// ── Sync panel ────────────────────────────────────────────────────────────────
-
 function SyncPanel() {
   const [preview, setPreview] = useState<SyncPreview | null>(null);
-  const [result,  setResult]  = useState<SyncResult  | null>(null);
+  const [result, setResult] = useState<SyncResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [merging, setMerging] = useState(false);
-  const [error,   setError]   = useState('');
+  const [error, setError] = useState('');
 
   async function handlePreview() {
     setLoading(true); setError(''); setResult(null); setPreview(null);
     try {
-      let res: Response;
-      try { res = await fetch('/api/sync'); }
-      catch (netErr) { throw new Error(getErrorMessage(netErr, 'Koneksi gagal')); }
+      const res = await fetch('/api/sync');
       if (!res.ok) throw new Error(`Error ${res.status}`);
-      const json = await res.json() as { preview?: unknown; error?: string };
-      setPreview(json.preview);
-    } catch (err) { setError(getErrorMessage(err, 'Gagal memuat preview')); } finally {
+      
+      // 2. Gunakan interface respons
+      const json = await res.json() as SyncPreviewResponse;
+      setPreview(json.preview ?? null);
+    } catch (err) { 
+      setError(getErrorMessage(err, 'Gagal memuat preview')); 
+    } finally {
       setLoading(false);
     }
   }
 
   async function handleMerge() {
     const ok = await toast.confirm({
-      title      : 'Konfirmasi Merge Duplikat',
-      message    : 'Merge semua duplikat? Aksi ini tidak bisa dibatalkan.',
+      title: 'Konfirmasi Merge Duplikat',
+      message: 'Merge semua duplikat? Aksi ini tidak bisa dibatalkan.',
       confirmText: 'Ya, Merge Sekarang',
-      danger     : true,
+      danger: true,
     });
     if (!ok) return;
+
     setMerging(true); setError('');
     try {
-      let res: Response;
-      try { res = await fetch('/api/sync', { method: 'POST' }); }
-      catch (netErr) { throw new Error(getErrorMessage(netErr, 'Koneksi gagal')); }
+      const res = await fetch('/api/sync', { method: 'POST' });
       if (!res.ok) throw new Error(`Error ${res.status}`);
-      const json = await res.json() as { result?: unknown; error?: string };
-      setResult(json.result); setPreview(null);
-    } catch (err) { setError(getErrorMessage(err, 'Merge gagal')); } finally {
+      
+      // 2. Gunakan interface respons
+      const json = await res.json() as SyncMergeResponse;
+      setResult(json.result ?? null); 
+      setPreview(null);
+    } catch (err) { 
+      setError(getErrorMessage(err, 'Merge gagal')); 
+    } finally {
       setMerging(false);
     }
   }

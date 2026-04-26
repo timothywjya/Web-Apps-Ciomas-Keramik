@@ -12,12 +12,33 @@ interface Customer { id: string; name: string; customer_type: string; }
 interface Product { id: string; name: string; sku: string; selling_price: number; grosir_price: number; stock_quantity: number; unit: string; }
 interface SaleItem { product_id: string; product_name: string; quantity: number; unit_price: number; discount_percent: number; subtotal: number; }
 
+interface ReceivableResponse {
+  receivable: Receivable;
+}
+
+interface GetPaymentsResponse {
+  payments: ReceivablePayment[];
+}
+
+interface ReceivableListResponse {
+  receivables: Receivable[];
+}
+
+interface PaymentListResponse {
+  payments: ReceivablePayment[];
+}
+
+interface SalesListResponse {
+  sales: Sale[];
+}
+
 interface Receivable {
   id: string; invoice_number: string; customer_name: string;
   total_amount: number; paid_amount: number; outstanding: number;
   discount_amount: number; status: string; due_date?: string;
   payment_type: string; notes?: string;
 }
+
 interface ReceivablePayment {
   id: string; payment_date: string; amount: number;
   payment_method: string; reference_no?: string; notes?: string;
@@ -71,7 +92,11 @@ export default function SalesPage() {
       const params = new URLSearchParams();
       if (search) params.set('search', search);
       if (statusFilter) params.set('status', statusFilter);
-      const data = await fetchJson<Record<string,unknown>>(`/api/sales?${params}`);
+      
+      // Gunakan interface SalesListResponse sebagai generic type
+      const data = await fetchJson<SalesListResponse>(`/api/sales?${params}`);
+      
+      // TypeScript sekarang tahu data.sales adalah Sale[]
       setSales(data.sales || []);
     } catch (err) {
       toast.error('Gagal memuat data', getErrorMessage(err));
@@ -141,35 +166,54 @@ export default function SalesPage() {
     setModal('piutang');
     setPiutangLoading(true);
     try {
-      // Cari piutang berdasarkan sale (via receivables list, filter by invoice)
-      const data = await fetchJson<Record<string,unknown>>(`/api/receivables?search=${encodeURIComponent(sale.invoice_number)}`);
-      const found: Receivable | undefined = (data.receivables || []).find(
-        (r: Receivable) => r.invoice_number === sale.invoice_number
-      );
-      if (found) {
-        setPiutang(found);
-        const pd   = await fetchJson<Record<string,unknown>>(`/api/receivables/${found.id}`);
-        setPiutangPayments((pd.payments || []) as never[]);
-      }
-    } finally {
-      setPiutangLoading(false);
+    const data = await fetchJson<ReceivableListResponse>(`/api/receivables?search=${encodeURIComponent(sale.invoice_number)}`);
+    
+    const found = (data.receivables || []).find(
+      (r) => r.invoice_number === sale.invoice_number
+    );
+
+    if (found) {
+      setPiutang(found);
+      
+      const pd = await fetchJson<PaymentListResponse>(`/api/receivables/${found.id}`);
+      setPiutangPayments(pd.payments || []);
     }
+  } catch (err) {
+    console.error("Gagal memuat piutang:", err);
+  } finally {
+    setPiutangLoading(false);
   }
+}
 
   async function handleTambahCicilan() {
     if (!piutang) return;
     const amt = parseFloat(cicilanAmount);
-    if (!amt || amt <= 0) { setCicilanError('Jumlah harus lebih dari 0'); return; }
-    setCicilanSaving(true); setCicilanError('');
+    if (!amt || amt <= 0) { 
+      setCicilanError('Jumlah harus lebih dari 0'); 
+      return; 
+    }
+    
+    setCicilanSaving(true); 
+    setCicilanError('');
+    
     try {
-      const data = await fetchJsonPost<Record<string,unknown>>(`/api/receivables/${piutang.id}`, { amount: amt, payment_date: cicilanDate, payment_method: cicilanMethod, reference_no: cicilanRef, notes: cicilanNotes });
+      // 1. Update piutang (Gunakan interface yang sudah ada)
+      const data = await fetchJsonPost<ReceivableResponse>(
+        `/api/receivables/${piutang.id}`, 
+        { amount: amt, payment_date: cicilanDate, payment_method: cicilanMethod, reference_no: cicilanRef, notes: cicilanNotes }
+      );
       setPiutang(data.receivable);
-      // Refresh payments
-      const pd = await fetchJson<Record<string,unknown>>(`/api/receivables/${piutang.id}`);
+
+      // 2. Refresh daftar pembayaran
+      const pd = await fetchJson<GetPaymentsResponse>(`/api/receivables/${piutang.id}`);
       setPiutangPayments(pd.payments || []);
+
+      // 3. Reset state
       setShowAddCicilan(false);
       setCicilanAmount(''); setCicilanRef(''); setCicilanNotes('');
+      
       fetchSales();
+      
     } catch (err) {
       setCicilanError(err instanceof Error ? err.message : 'Gagal menyimpan');
     } finally {
@@ -181,7 +225,8 @@ export default function SalesPage() {
     if (!viewSale) return;
     setPiutangLoading(true);
     try {
-      const data = await fetchJsonPost<Record<string,unknown>>('/api/receivables', { sale_id: viewSale!.id, payment_type: 'kredit' });
+      const data = await fetchJsonPost<ReceivableResponse>('/api/receivables', {sale_id: viewSale!.id, payment_type: 'kredit'});
+      
       setPiutang(data.receivable);
     } catch (err) {
       setCicilanError(err instanceof Error ? err.message : 'Gagal membuat piutang');

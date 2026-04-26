@@ -22,7 +22,6 @@ export interface UserPayload {
   role: 'admin' | 'manager' | 'kasir' | 'gudang';
 }
 
-// ── User ──────────────────────────────────────
 export interface User {
   id: string;
   username: string;
@@ -55,7 +54,6 @@ export interface UpdateUserDto {
   password?: string;
 }
 
-// ── Category ──────────────────────────────────
 export interface Category {
   id: string;
   name: string;
@@ -68,7 +66,6 @@ export interface CreateCategoryDto {
   description?: string;
 }
 
-// ── Supplier ──────────────────────────────────
 export interface Supplier {
   id: string;
   name: string;
@@ -297,7 +294,33 @@ export interface CreatePurchaseDto {
   items: PurchaseItem[];
 }
 
-// ── Report ────────────────────────────────────
+export interface PayablePayment {
+  id: string;
+  payment_date: string;
+  amount: number;
+  payment_method: string;
+  reference_no?: string;
+  notes?: string;
+}
+
+export type Payable = {
+    id: string;
+    purchase_id?: string | undefined;
+    po_number: string;
+    po_date: string;
+    due_date?: string | undefined;
+    supplier_name: string;
+    supplier_phone?: string | undefined;
+    ref_number?: string | undefined;
+    total_amount: number;
+    discount_amount: number;
+    paid_amount: number;
+    outstanding: number;
+    status: "partial" | "paid" | "outstanding" | "overdue";
+    source?: "auto" | "manual" | undefined;
+    notes?: string | undefined;
+}
+
 export type ReportType = 'sales_summary' | 'monthly' | 'product_sales' | 'customer_sales';
 
 export interface ReportFilter {

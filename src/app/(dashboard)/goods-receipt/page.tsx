@@ -92,7 +92,7 @@ export default function GoodsReceiptPage() {
       await fetchJsonPost('/api/goods-receipt', {
         purchase_id: poId, received_date: receivedDate, notes,
         items: editItems.map(i => ({
-          product_id: i.product_id, qty_ordered: i.qty_ordered,
+          product_id: i.id, qty_ordered: i.qty_ordered,
           qty_received: i.qty_received, qty_damaged: i.qty_damaged,
           unit_price: i.unit_price, notes: i.notes,
         })),

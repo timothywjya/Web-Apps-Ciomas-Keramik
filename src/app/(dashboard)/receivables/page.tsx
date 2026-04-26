@@ -3,15 +3,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/lib/toast';
 import { fetchJson, fetchJsonPost, getErrorMessage } from '@/lib/fetchJson';
 
-// =============================================================================
-// Piutang — Tagihan Ciomas ke Customer / Kontraktor
-// Sumber:
-//   1. AUTO  → Sales Invoice (kredit/tempo/dp) — muncul otomatis
-//   2. MANUAL → Entri tanpa invoice (prioritas kedua)
-// =============================================================================
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
 type PaymentType = 'kredit' | 'tempo' | 'dp' | 'cash';
 
 type Receivable = {
@@ -68,7 +59,26 @@ type Customer = { id: string; name: string; customer_type: string; };
 
 type Summary = { total_outstanding: number; total_overdue: number; count: number };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+export interface ReceivableListResponse {
+  receivables: Receivable[];
+}
+
+export interface ReceivableSummaryResponse {
+  summary: {
+    total_outstanding: number;
+    total_overdue: number;
+    count: number;
+  };
+}
+
+interface CreateReceivableResponse {
+  receivable: Receivable; 
+}
+
+export interface ReceivableDetailResponse {
+  receivable: Receivable; 
+  payments: Payment[]; 
+}
 
 const rp = (n: number) =>
   new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n || 0);
@@ -84,6 +94,7 @@ const STATUS_LABEL: Record<string, string> = {
   paid       : 'Lunas',
   overdue    : 'Jatuh Tempo',
 };
+
 const STATUS_COLOR: Record<string, [string, string]> = {
   outstanding: ['#854d0e', '#fef9c3'],
   partial    : ['#1e40af', '#dbeafe'],
@@ -175,9 +186,7 @@ function ProgressBar({ paid, total, discount }: { paid: number; total: number; d
       </div>
     </div>
   );
-}
-
-// ─── Main Component ───────────────────────────────────────────────────────────
+} 
 
 export default function ReceivablesPage() {
   const toast = useToast();
@@ -208,12 +217,10 @@ export default function ReceivablesPage() {
   const [manualSaving, setManualSaving] = useState(false);
   const [manualError,  setManualError]  = useState('');
 
-  // ── Fetch Customers ─────────────────────────────────────────────────────────
   useEffect(() => {
     fetchJson<Record<string,unknown>>('/api/customers').then(d=>setCustomers((d.customers||[]) as never[])).catch(()=>{});
   }, []);
 
-  // ── Fetch Piutang List ──────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
@@ -222,12 +229,16 @@ export default function ReceivablesPage() {
       if (statusFilter) p.set('status', statusFilter);
       if (typeFilter)   p.set('payment_type', typeFilter);
       if (sourceFilter) p.set('source', sourceFilter);
+
       const [r1, r2] = await Promise.all([
-        fetchJson<Record<string,unknown>>(`/api/receivables?${p}`),
-        fetchJson<Record<string,unknown>>('/api/receivables?summary=1'),
+        fetchJson<ReceivableListResponse>(`/api/receivables?${p}`),
+        fetchJson<ReceivableSummaryResponse>('/api/receivables?summary=1'),
       ]);
+
       setList(r1.receivables ?? []);
-      setSummary(r2.summary  ?? { total_outstanding: 0, total_overdue: 0, count: 0 });
+      
+      setSummary(r2.summary ?? { total_outstanding: 0, total_overdue: 0, count: 0 });
+      
     } catch (err) {
       toast.error('Gagal memuat data', getErrorMessage(err));
     } finally {
@@ -235,23 +246,32 @@ export default function ReceivablesPage() {
     }
   }, [search, statusFilter, typeFilter, sourceFilter]);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
-
-  // ── Open Detail ─────────────────────────────────────────────────────────────
   async function openDetail(id: string) {
     setError('');
     try {
-      const r = await fetchJson<Record<string,unknown>>(`/api/receivables/${id}`);
+      const r = await fetchJson<ReceivableDetailResponse>(`/api/receivables/${id}`);
+      
       if (!r.receivable) return;
-      setDetail({ recv: r.receivable, payments: r.payments ?? [] });
+
+      setDetail({ 
+        recv: r.receivable, 
+        payments: r.payments ?? [] 
+      });
+
       setDiscountVal(String(r.receivable.discount_amount));
-      setPayForm(p => ({ ...p, amount: '', bank_name: '', reference_no: '', notes: '' }));
+      setPayForm(p => ({ 
+        ...p, 
+        amount: '', 
+        bank_name: '', 
+        reference_no: '', 
+        notes: '' 
+      }));
+      
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal memuat detail piutang');
     }
   }
 
-  // ── Catat Pembayaran / Cicilan ──────────────────────────────────────────────
   async function handlePayment() {
     if (!detail || !payForm.amount) return;
     setSaving(true); setError('');
@@ -280,37 +300,59 @@ export default function ReceivablesPage() {
     finally     { setSaving(false); }
   }
 
-  // ── Manual Entry (dengan opsional DP langsung) ──────────────────────────────
   async function handleManualCreate() {
     if (!manualForm.invoice_number) { setManualError('No. Invoice wajib diisi'); return; }
     if (!manualForm.total_amount || parseFloat(manualForm.total_amount) <= 0) {
       setManualError('Total tagihan harus lebih dari 0');
       return;
     }
-    setManualSaving(true); setManualError('');
-    try {
-      const json = await fetchJsonPost<Record<string,unknown>>('/api/receivables', manualPayload);
 
-      // Jika ada DP, langsung catat sebagai cicilan pertama
+    const manualPayload = {
+      invoice_number: manualForm.invoice_number,
+      invoice_date: manualForm.invoice_date,
+      customer_id: manualForm.customer_id,
+      due_date: manualForm.due_date,
+      payment_type: manualForm.payment_type,
+      total_amount: parseFloat(manualForm.total_amount),
+      discount_amount: parseFloat(manualForm.discount_amount || '0'),
+      notes: manualForm.notes,
+    };
+
+    setManualSaving(true); 
+    setManualError('');
+
+    try {
+      const json = await fetchJsonPost<CreateReceivableResponse>('/api/receivables', manualPayload);
+
       const dpAmt = parseFloat(manualForm.dp_amount || '0');
+      
       if (dpAmt > 0 && json.receivable?.id) {
         await fetchJsonPost(`/api/receivables/${json.receivable.id}`, {
-            amount        : dpAmt,
-            payment_date  : manualForm.invoice_date,
-            payment_method: 'cash',
-            notes         : 'DP / Uang Muka (dicatat saat buat piutang)',
-          });
+          amount: dpAmt,
+          payment_date: manualForm.invoice_date,
+          payment_method: 'cash',
+          notes: 'DP / Uang Muka (dicatat saat buat piutang)',
+        });
       }
 
       setShowManual(false);
       setManualForm({
-        invoice_number: '', invoice_date: today(), customer_id: '',
-        due_date: '', payment_type: 'cash', total_amount: '',
-        discount_amount: '', dp_amount: '', notes: '',
+        invoice_number: '', 
+        invoice_date: today(), 
+        customer_id: '',
+        due_date: '', 
+        payment_type: 'cash', 
+        total_amount: '',
+        discount_amount: '', 
+        dp_amount: '', 
+        notes: '',
       });
       fetchAll();
-    } catch (err) { setManualError(getErrorMessage(err, 'Gagal menyimpan piutang')); }
-    finally     { setManualSaving(false); }
+    } catch (err) { 
+      setManualError(getErrorMessage(err, 'Gagal menyimpan piutang')); 
+    } finally { 
+      setManualSaving(false); 
+    }
   }
 
   const isOverdue   = (r: Receivable) =>
