@@ -9,8 +9,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     const auth = await requireAuth();
     if (auth instanceof NextResponse) return auth;
     const { id } = await params;
-    const gr    = await GoodsReceiptRepository.findById(id) as Record<string,unknown> | null;
-    const items = await GoodsReceiptRepository.findItems(id) as Record<string,unknown>[];
+    const gr    = await GoodsReceiptRepository.findById(id);
+    const items = await GoodsReceiptRepository.findItems(id);
     if (!gr) return fail('BPB tidak ditemukan', 404);
     const html = generateGoodsReceiptHTML({
       gr: { gr_number: String(gr.gr_number), received_date: String(gr.received_date), status: String(gr.status), notes: String(gr.notes ?? ''), po_number: String(gr.po_number), supplier_name: String(gr.supplier_name ?? ''), supplier_phone: String(gr.supplier_phone ?? ''), created_by_name: String(gr.created_by_name ?? ''), confirmed_by_name: String(gr.confirmed_by_name ?? ''), confirmed_at: String(gr.confirmed_at ?? '') },

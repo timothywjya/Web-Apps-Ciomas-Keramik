@@ -63,8 +63,8 @@ export default function PurchasesPage() {
     try {
       const params = new URLSearchParams();
       if (search) params.set('search', search);
-      const data = await fetchJson<Record<string,unknown>>(`/api/purchases?${params}`);
-      setPurchases((data.purchases || []) as never[]);
+      const data = await fetchJson<{ purchases: Purchase[] }>(`/api/purchases?${params}`);
+      setPurchases(data.purchases || []);
     } catch (err) {
       toast.error('Gagal memuat pembelian', getErrorMessage(err));
     } finally {
@@ -74,8 +74,8 @@ export default function PurchasesPage() {
 
   useEffect(() => { fetchPurchases(); }, [fetchPurchases]);
   useEffect(() => {
-    fetchJson<Record<string,unknown>>('/api/suppliers').then(d=>setSuppliers((d.suppliers||[]) as never[])).catch(()=>{});
-    fetchJson<Record<string,unknown>>('/api/products?active=1').then(d=>setProducts((d.products||[]) as never[])).catch(()=>{});
+    fetchJson<{ suppliers: Supplier[] }>('/api/suppliers').then(d => setSuppliers(d.suppliers || [])).catch(() => {});
+    fetchJson<{ products: Product[] }>('/api/products?active=1').then(d => setProducts(d.products || [])).catch(() => {});
   }, []);
 
   function openModal() {
@@ -94,8 +94,8 @@ export default function PurchasesPage() {
   function updateItem(idx: number, key: keyof PurchaseItem, val: string | number) {
     setItems(prev => prev.map((item, i) => {
       if (i !== idx) return item;
-      const updated = { ...item, [key]: val };
-      updated.subtotal = updated.quantity * updated.unit_price;
+      const updated = { ...item, [key]: typeof val === 'string' ? (parseFloat(val) || 0) : val };
+      updated.subtotal = Number(updated.quantity) * Number(updated.unit_price);
       return updated;
     }));
   }
@@ -112,13 +112,13 @@ export default function PurchasesPage() {
     finally { setPoEmailLoading(false); }
   }
 
-  const total = items.reduce((s, i) => s + i.subtotal, 0);
+  const total = items.reduce((s, i) => s + (Number(i.quantity) * Number(i.unit_price)), 0);
 
   async function handleSave() {
     if (items.length === 0) { setError('Tambahkan minimal 1 produk'); return; }
     setSaving(true); setError('');
     try {
-      const json = await fetchJsonPost<Record<string,unknown>>('/api/purchases', { supplier_id: selectedSupplier || null, items, notes });
+      await fetchJsonPost<{ id: string; purchase_number: string }>('/api/purchases', { supplier_id: selectedSupplier || null, items, notes });
       setModal(null);
       fetchPurchases();
     } catch (err) { setError(getErrorMessage(err, 'Gagal menyimpan')); } finally { setSaving(false); }

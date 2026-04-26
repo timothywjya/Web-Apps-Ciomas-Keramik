@@ -1,8 +1,23 @@
 import { dbQuery, dbQueryOne, dbTransaction } from './base.repository';
 
+export interface GoodsReceiptRow {
+  id: string; gr_number: string; purchase_id: string;
+  po_number: string; supplier_name: string;
+  received_date: string; status: string;
+  notes?: string; created_by: string;
+  created_by_name: string; confirmed_by_name?: string; confirmed_at?: string;
+}
+
+export interface GoodsReceiptItemRow {
+  id: string; goods_receipt_id: string; product_id: string;
+  product_name: string; sku: string;
+  qty_ordered: number; qty_received: number; qty_damaged: number;
+  unit_price: number; notes?: string;
+}
+
 export const GoodsReceiptRepository = {
 
-  async findAll(purchaseId?: string): Promise<Record<string,unknown>[]> {
+  async findAll(purchaseId?: string): Promise<GoodsReceiptRow[]> {
     const params: unknown[] = [];
     const where : string[]  = ['1=1'];
     if (purchaseId) { params.push(purchaseId); where.push(`gr.purchase_id = $${params.length}`); }
@@ -25,7 +40,7 @@ export const GoodsReceiptRepository = {
     );
   },
 
-  async findById(id: string): Promise<Record<string,unknown> | null> {
+  async findById(id: string): Promise<GoodsReceiptRow | null> {
     return dbQueryOne(
       `SELECT gr.*,
               p.purchase_number AS po_number,
@@ -43,7 +58,7 @@ export const GoodsReceiptRepository = {
     );
   },
 
-  async findItems(grId: string): Promise<Record<string,unknown>[]> {
+  async findItems(grId: string): Promise<GoodsReceiptItemRow[]> {
     return dbQuery(
       `SELECT gri.*, prod.name AS product_name, prod.sku
        FROM   goods_receipt_items gri

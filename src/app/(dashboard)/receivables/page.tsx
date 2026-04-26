@@ -218,7 +218,7 @@ export default function ReceivablesPage() {
   const [manualError,  setManualError]  = useState('');
 
   useEffect(() => {
-    fetchJson<Record<string,unknown>>('/api/customers').then(d=>setCustomers((d.customers||[]) as never[])).catch(()=>{});
+    fetchJson<{ customers: Customer[] }>('/api/customers').then(d => setCustomers(d.customers || [])).catch(() => {});
   }, []);
 
   const fetchAll = useCallback(async () => {
@@ -276,7 +276,7 @@ export default function ReceivablesPage() {
     if (!detail || !payForm.amount) return;
     setSaving(true); setError('');
     try {
-      const json = await fetchJsonPost<Record<string,unknown>>(`/api/receivables/${detail.recv.id}`, {
+      const json = await fetchJsonPost<{ receivable?: unknown; success?: boolean }>(`/api/receivables/${detail.recv.id}`, {
         amount: parseFloat(payForm.amount), payment_date: payForm.payment_date,
         payment_method: payForm.payment_method, bank_name: payForm.bank_name || null,
         reference_no: payForm.reference_no || null, notes: payForm.notes || null,
@@ -293,7 +293,7 @@ export default function ReceivablesPage() {
     if (!detail) return;
     setSaving(true); setError('');
     try {
-      const json = await fetchJsonPost<Record<string,unknown>>(`/api/receivables/${detail.recv.id}`, { discount_amount: parseFloat(discountVal) || 0 }, 'PATCH');
+      const json = await fetchJsonPost<{ receivable?: unknown; success?: boolean }>(`/api/receivables/${detail.recv.id}`, { discount_amount: parseFloat(discountVal) || 0 }, 'PATCH');
       setDetail(d => d ? { ...d, recv: json.receivable as never } : null);
       fetchAll();
     } catch (err) { setError(getErrorMessage(err, 'Gagal')); }

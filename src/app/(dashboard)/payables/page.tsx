@@ -188,7 +188,7 @@ export default function PayablesPage() {
 
   // ── Fetch Suppliers ─────────────────────────────────────────────────────────
   useEffect(() => {
-    fetchJson<Record<string,unknown>>('/api/suppliers').then(d=>setSuppliers((d.suppliers||[]) as never[])).catch(()=>{});
+    fetchJson<{ suppliers: Supplier[] }>('/api/suppliers').then(d => setSuppliers(d.suppliers || [])).catch(() => {});
   }, []);
 
   const fetchAll = useCallback(async () => {
@@ -253,7 +253,7 @@ export default function PayablesPage() {
     if (!detail || !payForm.amount) return;
     setSaving(true); setError('');
     try {
-      const json = await fetchJsonPost<Record<string,unknown>>(`/api/payables/${detail.pay.id}`, {
+      await fetchJsonPost<{ payable: unknown }>(`/api/payables/${detail.pay.id}`, {
         amount        : parseFloat(payForm.amount),
         payment_date  : payForm.payment_date,
         payment_method: payForm.payment_method,
@@ -273,7 +273,7 @@ export default function PayablesPage() {
     if (!detail) return;
     setSaving(true); setError('');
     try {
-      const json = await fetchJsonPost<Record<string,unknown>>(`/api/payables/${detail.pay.id}`, {
+      await fetchJsonPost<{ payable: unknown }>(`/api/payables/${detail.pay.id}`, {
         discount_amount: parseFloat(discountVal) || 0,
       }, 'PATCH');
       setDetail(d => d ? { ...d, pay: json.payable as never } : null);

@@ -107,8 +107,8 @@ export default function SalesPage() {
 
   useEffect(() => { fetchSales(); }, [fetchSales]);
   useEffect(() => {
-    fetchJson<Record<string,unknown>>('/api/customers').then(d=>setCustomers((d.customers||[]) as never[])).catch(()=>{});
-    fetchJson<Record<string,unknown>>('/api/products?active=1').then(d=>setProducts((d.products||[]) as never[])).catch(()=>{});
+    fetchJson<{ customers: Customer[] }>('/api/customers').then(d => setCustomers(d.customers || [])).catch(() => {});
+    fetchJson<{ products: Product[] }>('/api/products?active=1').then(d => setProducts(d.products || [])).catch(() => {});
   }, []);
 
   function openAdd() {
@@ -131,20 +131,37 @@ export default function SalesPage() {
   function updateItem(idx: number, key: keyof SaleItem, val: string | number) {
     setItems(prev => prev.map((item, i) => {
       if (i !== idx) return item;
-      const updated = { ...item, [key]: val };
-      updated.subtotal = updated.quantity * updated.unit_price * (1 - updated.discount_percent / 100);
+      const updated = { ...item, [key]: typeof val === 'string' ? (parseFloat(val) || 0) : val };
+      updated.subtotal = Number(updated.quantity) * Number(updated.unit_price) * (1 - Number(updated.discount_percent) / 100);
       return updated;
     }));
   }
 
-  const subtotal = items.reduce((s, i) => s + i.subtotal, 0);
+  const subtotal = items.reduce((s, i) => s + (Number(i.quantity) * Number(i.unit_price) * (1 - Number(i.discount_percent) / 100)), 0);
   const total    = subtotal - discountAmount;
 
   async function handleSave() {
     if (items.length === 0) { setError('Tambahkan minimal 1 produk'); return; }
+
+    // Validasi DP untuk metode cash/transfer
+    if ((paymentMethod === 'cash' || paymentMethod === 'transfer') && downPayment > 0) {
+      if (downPayment > total) {
+        setError(`DP (${formatRp(downPayment)}) tidak boleh melebihi total harga (${formatRp(total)})`);
+        return;
+      }
+    }
+
     setSaving(true); setError('');
     try {
-      const json = await fetchJsonPost<Record<string,unknown>>('/api/sales', { customer_id: selectedCustomer || null, payment_method: paymentMethod, discount_amount: discountAmount, down_payment: downPayment, due_date: dueDate || null, notes, items });
+      await fetchJsonPost<{ id: string; invoice_number: string }>('/api/sales', {
+        customer_id: selectedCustomer || null,
+        payment_method: paymentMethod,
+        discount_amount: discountAmount,
+        down_payment: downPayment,
+        due_date: dueDate || null,
+        notes,
+        items,
+      });
       setModal(null);
       fetchSales();
     } catch (err) {
@@ -396,11 +413,23 @@ export default function SalesPage() {
                         value={downPayment || ''} onChange={e => setDownPayment(parseFloat(e.target.value) || 0)}
                         style={{ width: '100%' }} />
                     </div>
-                    {downPayment > 0 && downPayment < total && (
+                    {downPayment > 0 && total > 0 && downPayment > total && (
+                      <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 14px', flex: 1, minWidth: '160px' }}>
+                        <div style={{ fontSize: '0.75rem', color: '#dc2626', fontWeight: 700 }}>❌ DP Melebihi Total</div>
+                        <div style={{ fontSize: '0.82rem', color: '#dc2626' }}>DP tidak boleh lebih dari {formatRp(total)}</div>
+                      </div>
+                    )}
+                    {downPayment > 0 && total > 0 && downPayment === total && (
                       <div style={{ background: '#dcfce7', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '10px 14px', flex: 1, minWidth: '160px' }}>
-                        <div style={{ fontSize: '0.75rem', color: '#166534', fontWeight: 600 }}>Sisa Tagihan</div>
+                        <div style={{ fontSize: '0.75rem', color: '#166534', fontWeight: 700 }}>✅ Lunas (Paid)</div>
+                        <div style={{ fontSize: '0.82rem', color: '#166534' }}>Invoice akan langsung berstatus Paid & Done</div>
+                      </div>
+                    )}
+                    {downPayment > 0 && total > 0 && downPayment < total && (
+                      <div style={{ background: '#dcfce7', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '10px 14px', flex: 1, minWidth: '160px' }}>
+                        <div style={{ fontSize: '0.75rem', color: '#166534', fontWeight: 600 }}>Sisa Tagihan → Piutang</div>
                         <div style={{ fontWeight: 700, color: '#166534', fontSize: '1rem' }}>
-                          {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(total - downPayment)}
+                          {formatRp(total - downPayment)}
                         </div>
                       </div>
                     )}

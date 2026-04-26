@@ -10,7 +10,7 @@ interface GR {
   notes?: string;
 }
 interface GRItem {
-  id: string; product_name: string; sku: string;
+  id: string; product_id: string; product_name: string; sku: string;
   qty_ordered: number; qty_received: number; qty_damaged: number;
   unit_price: number; notes?: string;
 }
@@ -92,7 +92,8 @@ export default function GoodsReceiptPage() {
       await fetchJsonPost('/api/goods-receipt', {
         purchase_id: poId, received_date: receivedDate, notes,
         items: editItems.map(i => ({
-          product_id: i.id, qty_ordered: i.qty_ordered,
+          purchase_item_id: i.id,
+          product_id: i.product_id, qty_ordered: i.qty_ordered,
           qty_received: i.qty_received, qty_damaged: i.qty_damaged,
           unit_price: i.unit_price, notes: i.notes,
         })),

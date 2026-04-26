@@ -75,10 +75,27 @@ export const SaleService = {
     }
 
     // ── Auto-buat Piutang berdasarkan metode pembayaran ─────────────────────
-    // kredit / tempo  → piutang penuh (DP diproses terpisah jika ada)
-    // cash / transfer dengan down_payment > 0 → piutang tipe 'dp'
+    // kredit / tempo  → piutang penuh
+    // cash / transfer + DP == total → Paid langsung
+    // cash / transfer + DP < total  → piutang tipe 'dp'
+    // cash / transfer + DP > total  → tolak
     const pm    = dto.payment_method ?? 'cash';
     const dpAmt = (dto as { down_payment?: number }).down_payment ?? 0;
+
+    // Validasi: DP tidak boleh melebihi total
+    if (dpAmt > totalAmount) {
+      throw new Error('DP tidak boleh melebihi total harga');
+    }
+
+    // DP == total → invoice langsung Paid & Done
+    const dpFullyPaid = (pm === 'cash' || pm === 'transfer') && dpAmt > 0 && dpAmt === totalAmount;
+    if (dpFullyPaid) {
+      await SaleRepository.update(sale.id, {
+        payment_status: 'paid',
+        status        : 'delivered',
+        paid_amount   : totalAmount,
+      });
+    }
 
     const shouldCreateReceivable =
       pm === 'kredit' || pm === 'tempo' ||
