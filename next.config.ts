@@ -15,12 +15,10 @@ const securityHeaders = [
     key  : 'Content-Security-Policy',
     value: [
       "default-src 'self'",
-      isDev
-        ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
-        : "script-src 'self' 'unsafe-inline'",
-      "style-src 'self' 'unsafe-inline'",
+      isDev ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'" : "script-src 'self' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", // Tambahkan ini
+      "font-src 'self' https://fonts.gstatic.com",                     // Tambahkan ini
       "img-src 'self' data: blob:",
-      "font-src 'self'",
       "connect-src 'self'",
       "frame-ancestors 'none'",
       "base-uri 'self'",

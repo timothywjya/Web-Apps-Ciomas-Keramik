@@ -28,8 +28,6 @@ export function serverError(err: unknown): NextResponse {
   return fail(message, 500);
 }
 
-// ─── Auth guards ──────────────────────────────────────────────────────────────
-
 export async function requireAuth(): Promise<UserPayload | NextResponse> {
   const session = await getSession();
   return session ?? unauthorized();
@@ -44,17 +42,12 @@ export async function requireRole(...roles: Role[]): Promise<UserPayload | NextR
   return session;
 }
 
-// ─── ID validation ────────────────────────────────────────────────────────────
-
-/** Call at the top of any route that uses a UUID path param. */
 export function validateId(id: string): NextResponse | null {
   if (!isValidUUID(id)) {
     return fail('ID tidak valid.', 400);
   }
   return null;
 }
-
-// ─── Error boundary ───────────────────────────────────────────────────────────
 
 export async function handle(fn: () => Promise<NextResponse>): Promise<NextResponse> {
   try {

@@ -1,11 +1,19 @@
 import { dbQuery, dbQueryOne, dbTransaction } from './base.repository';
 
 export interface GoodsReceiptRow {
-  id: string; gr_number: string; purchase_id: string;
-  po_number: string; supplier_name: string;
-  received_date: string; status: string;
-  notes?: string; created_by: string;
-  created_by_name: string; confirmed_by_name?: string; confirmed_at?: string;
+  id: string; 
+  gr_number: string; 
+  purchase_id: string;
+  po_number: string; 
+  supplier_name: string;
+  supplier_phone?: string;
+  received_date: string; 
+  status: string;
+  notes?: string; 
+  created_by: string;
+  created_by_name: string; 
+  confirmed_by_name?: string; 
+  confirmed_at?: string;
 }
 
 export interface GoodsReceiptItemRow {
@@ -16,7 +24,6 @@ export interface GoodsReceiptItemRow {
 }
 
 export const GoodsReceiptRepository = {
-
   async findAll(purchaseId?: string): Promise<GoodsReceiptRow[]> {
     const params: unknown[] = [];
     const where : string[]  = ['1=1'];
@@ -109,7 +116,6 @@ export const GoodsReceiptRepository = {
     });
   },
 
-  /** Konfirmasi BPB → update stok produk */
   async confirm(grId: string, confirmedBy: string): Promise<void> {
     await dbTransaction(async (client) => {
       // Get items
@@ -127,13 +133,11 @@ export const GoodsReceiptRepository = {
         const qtyBefore = Number(item.current_qty);
         const qtyAfter  = qtyBefore + goodQty;
 
-        // Update product stock
         await client.query(
           `UPDATE products SET stock_quantity = $1, updated_at = NOW() WHERE id = $2`,
           [qtyAfter, item.product_id],
         );
 
-        // Record stock movement
         await client.query(
           `INSERT INTO stock_movements
              (product_id, movement_type, quantity, quantity_before, quantity_after,
@@ -144,14 +148,12 @@ export const GoodsReceiptRepository = {
         );
       }
 
-      // Update GR status + purchase status
       await client.query(
         `UPDATE goods_receipts
          SET status='confirmed', confirmed_by=$1, confirmed_at=NOW(), updated_at=NOW()
          WHERE id=$2`, [confirmedBy, grId],
       );
 
-      // Check if PO is fully received
       await client.query(
         `UPDATE purchases SET status='received', updated_at=NOW()
          WHERE id = (SELECT purchase_id FROM goods_receipts WHERE id=$1)`,
@@ -159,5 +161,4 @@ export const GoodsReceiptRepository = {
       );
     });
   },
-
 };

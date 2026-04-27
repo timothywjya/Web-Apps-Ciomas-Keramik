@@ -171,7 +171,6 @@ export default function SalesPage() {
     }
   }
 
-  // ── Open Piutang Modal ────────────────────────────────────────────────────
   async function openPiutang(sale: Sale) {
     setViewSale(sale);
     setPiutang(null);

@@ -170,7 +170,6 @@ const inp = (border = '#e7e5e4'): React.CSSProperties => ({
   boxSizing: 'border-box', outline: 'none',
 });
 
-// ─── Progress Bar ─────────────────────────────────────────────────────────────
 
 function ProgressBar({ paid, total, discount }: { paid: number; total: number; discount: number }) {
   const net = Math.max(0, total - discount);
@@ -217,10 +216,6 @@ export default function ReceivablesPage() {
   const [manualSaving, setManualSaving] = useState(false);
   const [manualError,  setManualError]  = useState('');
 
-  useEffect(() => {
-    fetchJson<{ customers: Customer[] }>('/api/customers').then(d => setCustomers(d.customers || [])).catch(() => {});
-  }, []);
-
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
@@ -230,21 +225,18 @@ export default function ReceivablesPage() {
       if (typeFilter)   p.set('payment_type', typeFilter);
       if (sourceFilter) p.set('source', sourceFilter);
 
-      const [r1, r2] = await Promise.all([
-        fetchJson<ReceivableListResponse>(`/api/receivables?${p}`),
-        fetchJson<ReceivableSummaryResponse>('/api/receivables?summary=1'),
-      ]);
-
-      setList(r1.receivables ?? []);
-      
-      setSummary(r2.summary ?? { total_outstanding: 0, total_overdue: 0, count: 0 });
-      
+      const response = await fetchJson<ReceivableListResponse>(`/api/receivables?${p.toString()}`);
+      setList(response.receivables ?? []);
     } catch (err) {
-      toast.error('Gagal memuat data', getErrorMessage(err));
+      console.error("Fetch Error:", err);
     } finally {
       setLoading(false);
     }
   }, [search, statusFilter, typeFilter, sourceFilter]);
+
+  useEffect(() => {
+    fetchAll();
+  }, [fetchAll]);
 
   async function openDetail(id: string) {
     setError('');
@@ -274,21 +266,39 @@ export default function ReceivablesPage() {
 
   async function handlePayment() {
     if (!detail || !payForm.amount) return;
-    setSaving(true); setError('');
+    setSaving(true); 
+    setError('');
+    
     try {
-      const json = await fetchJsonPost<{ receivable?: unknown; success?: boolean }>(`/api/receivables/${detail.recv.id}`, {
-        amount: parseFloat(payForm.amount), payment_date: payForm.payment_date,
-        payment_method: payForm.payment_method, bank_name: payForm.bank_name || null,
-        reference_no: payForm.reference_no || null, notes: payForm.notes || null,
+      const result = await fetchJsonPost<{ 
+        receivable: Receivable; 
+        payment: Payment 
+      }>(`/api/receivables/${detail.recv.id}`, {
+        amount: parseFloat(payForm.amount), 
+        payment_date: payForm.payment_date,
+        payment_method: payForm.payment_method, 
+        bank_name: payForm.bank_name || null,
+        reference_no: payForm.reference_no || null, 
+        notes: payForm.notes || null,
       });
-      setDetail({ recv: json.receivable as never, payments: [...detail.payments, json.payment as never] });
+
+      // Update state using the validated 'result' object
+      setDetail({ 
+        recv: result.receivable, 
+        payments: [...detail.payments, result.payment] 
+      });
+
       setPayForm(p => ({ ...p, amount: '', bank_name: '', reference_no: '', notes: '' }));
+      
+      // Refresh the main list to update statuses/totals
       fetchAll();
-    } catch (err) { setError(getErrorMessage(err, 'Gagal menyimpan')); }
-    finally     { setSaving(false); }
+    } catch (err) { 
+      setError(getErrorMessage(err, 'Gagal menyimpan')); 
+    } finally { 
+      setSaving(false); 
+    }
   }
 
-  // ── Update Diskon ───────────────────────────────────────────────────────────
   async function handleDiscount() {
     if (!detail) return;
     setSaving(true); setError('');
@@ -531,7 +541,6 @@ export default function ReceivablesPage() {
         </div>
       </div>
 
-      {/* ══ DETAIL MODAL ═══════════════════════════════════════════════════════ */}
       {detail && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}

@@ -1,28 +1,14 @@
 import { dbQuery, dbQueryOne, dbTransaction } from './base.repository';
 import type { PoolClient } from 'pg';
 
-// =============================================================================
-// Perspektif Akuntansi Ciomas Keramik
-//
-//   Piutang (receivables)
-//     = Uang yang HARUS DITERIMA dari Customer / Kontraktor
-//     Sumber: Sales Invoice (kredit / tempo) ATAU entri manual (cash DP, dll.)
-//
-//   Hutang (payables)
-//     = Kewajiban BAYAR ke Supplier
-//     Sumber: Purchase Order ATAU rekapan pribadi tanpa PO di sistem
-// =============================================================================
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Shared Types
-// ─────────────────────────────────────────────────────────────────────────────
-
 export type LedgerStatus = 'outstanding' | 'partial' | 'paid' | 'overdue';
 
-export type LedgerFilter = {
+export interface LedgerFilter {
   search?: string;
   status?: string;
-};
+  payment_type?: string; 
+  source?: string;      
+}
 
 export type LedgerSummary = {
   total_outstanding: number;
@@ -30,15 +16,11 @@ export type LedgerSummary = {
   count            : number;
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Piutang Types
-// ─────────────────────────────────────────────────────────────────────────────
-
 export type PaymentType = 'kredit' | 'tempo' | 'dp' | 'cash';
 
 export type Receivable = {
   id             : string;
-  sale_id       ?: string;          // NULL untuk piutang manual
+  sale_id       ?: string;  
   invoice_number : string;
   invoice_date   : string;
   due_date      ?: string;
@@ -50,7 +32,7 @@ export type Receivable = {
   total_amount   : number;
   discount_amount: number;
   paid_amount    : number;
-  outstanding    : number;          // GENERATED: total - discount - paid
+  outstanding    : number;      
   status         : LedgerStatus;
   notes         ?: string;
   created_at     : string;
@@ -93,13 +75,9 @@ export type AddReceivablePaymentInput = {
   created_by    : string;
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Hutang Types
-// ─────────────────────────────────────────────────────────────────────────────
-
 export type Payable = {
   id             : string;
-  purchase_id   ?: string;          // NULL untuk hutang manual
+  purchase_id   ?: string;        
   po_number      : string;
   po_date        : string;
   due_date      ?: string;
@@ -110,7 +88,7 @@ export type Payable = {
   total_amount   : number;
   discount_amount: number;
   paid_amount    : number;
-  outstanding    : number;          // GENERATED: total - discount - paid
+  outstanding    : number;     
   status         : LedgerStatus;
   notes         ?: string;
   created_at     : string;
@@ -153,10 +131,6 @@ export type AddPayablePaymentInput = {
   created_by    : string;
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Private Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
 function computeStatus(paid: number, total: number, discount: number): LedgerStatus {
   const net = total - discount;
   if (paid <= 0)   return 'outstanding';
@@ -194,10 +168,6 @@ async function syncPurchasePaidAmount(
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Piutang Repository
-// ─────────────────────────────────────────────────────────────────────────────
-
 const RECV_SELECT = `
   SELECT
     r.*,
@@ -221,6 +191,14 @@ export const ReceivableRepository = {
     if (filter.status) {
       params.push(filter.status);
       where.push(`r.status = $${params.length}`);
+    }
+    if (filter.payment_type) {
+      params.push(filter.payment_type);
+      where.push(`payment_type = $${params.length}`);
+    }
+    if (filter.source) {
+      params.push(filter.source);
+      where.push(`source = $${params.length}`);
     }
 
     return dbQuery<Receivable>(

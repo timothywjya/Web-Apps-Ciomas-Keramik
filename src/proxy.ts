@@ -128,7 +128,7 @@ function rateLimitedResponse(isApi: boolean): NextResponse {
   });
 }
 
-export function middleware(req: NextRequest): NextResponse {
+export function proxy(req: NextRequest): NextResponse {
   const { pathname } = req.nextUrl;
   const isApi        = pathname.startsWith('/api/');
 

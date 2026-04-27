@@ -186,7 +186,6 @@ export default function PayablesPage() {
   const [manualSaving, setManualSaving] = useState(false);
   const [manualError,  setManualError]  = useState('');
 
-  // ── Fetch Suppliers ─────────────────────────────────────────────────────────
   useEffect(() => {
     fetchJson<{ suppliers: Supplier[] }>('/api/suppliers').then(d => setSuppliers(d.suppliers || [])).catch(() => {});
   }, []);
@@ -198,14 +197,12 @@ export default function PayablesPage() {
       if (search)       p.set('search', search);
       if (statusFilter) p.set('status', statusFilter);
       if (sourceFilter) p.set('source', sourceFilter);
-      
-      // Gunakan interface yang sesuai untuk setiap pemanggilan
+
       const [r1, r2] = await Promise.all([
         fetchJson<PayableListResponse>(`/api/payables?${p}`),
         fetchJson<PayableSummaryResponse>('/api/payables?summary=1'),
       ]);
 
-      // TypeScript sekarang tahu r1.payables dan r2.summary ada
       setList(r1.payables ?? []);
       setSummary(r2.summary ?? { total_outstanding: 0, total_overdue: 0, count: 0 });
       
@@ -218,14 +215,11 @@ export default function PayablesPage() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // ── Open Detail ─────────────────────────────────────────────────────────────
   async function openDetail(id: string) {
     setError('');
     try {
-      // Gunakan interface PayableDetailResponse
       const r = await fetchJson<PayableDetailResponse>(`/api/payables/${id}`);
-      
-      // TypeScript sekarang tahu bahwa r.payable dan r.payments valid
+
       if (!r.payable) return;
       
       setDetail({ 
@@ -248,41 +242,65 @@ export default function PayablesPage() {
     }
   }
 
-  // ── Catat Pembayaran ke Supplier ────────────────────────────────────────────
   async function handlePayment() {
     if (!detail || !payForm.amount) return;
-    setSaving(true); setError('');
+    setSaving(true); 
+    setError('');
+    
     try {
-      await fetchJsonPost<{ payable: unknown }>(`/api/payables/${detail.pay.id}`, {
-        amount        : parseFloat(payForm.amount),
-        payment_date  : payForm.payment_date,
+
+      const result = await fetchJsonPost<{ 
+        payable: Payable; 
+        payment: PayablePayment 
+      }>(`/api/payables/${detail.pay.id}`, {
+        amount: parseFloat(payForm.amount),
+        payment_date: payForm.payment_date,
         payment_method: payForm.payment_method,
-        bank_name     : payForm.bank_name     || null,
-        reference_no  : payForm.reference_no  || null,
-        notes         : payForm.notes         || null,
+        bank_name: payForm.bank_name || null,
+        reference_no: payForm.reference_no || null,
+        notes: payForm.notes || null,
       });
-      setDetail({ pay: json.payable as never, payments: [...detail.payments, json.payment as never] });
-      setPayForm(p => ({ ...p, amount: '', bank_name: '', reference_no: '', notes: '' }));
+
+      // 2. Use 'result.payable' and 'result.payment'
+      setDetail({ 
+        pay: result.payable, 
+        payments: [...detail.payments, result.payment] 
+      });
+
+      setPayForm(p => ({ 
+        ...p, 
+        amount: '', 
+        bank_name: '', 
+        reference_no: '', 
+        notes: '' 
+      }));
+      
       fetchAll();
-    } catch (err) { setError(getErrorMessage(err, 'Gagal menyimpan pembayaran')); }
-    finally { setSaving(false); }
+    } catch (err) { 
+      setError(getErrorMessage(err, 'Gagal menyimpan pembayaran')); 
+    } finally { 
+      setSaving(false); 
+    }
   }
 
-  // ── Update Diskon ───────────────────────────────────────────────────────────
   async function handleDiscount() {
     if (!detail) return;
-    setSaving(true); setError('');
+    setSaving(true); 
+    setError('');
+    
     try {
-      await fetchJsonPost<{ payable: unknown }>(`/api/payables/${detail.pay.id}`, {
-        discount_amount: parseFloat(discountVal) || 0,
-      }, 'PATCH');
-      setDetail(d => d ? { ...d, pay: json.payable as never } : null);
+        const result = await fetchJsonPost<{ payable: Payable }>(`/api/payables/${detail.pay.id}`, {discount_amount: parseFloat(discountVal) || 0,}, 'PATCH');
+
+      setDetail(d => d ? { ...d, pay: result.payable } : null);
+      
       fetchAll();
-    } catch (err) { setError(getErrorMessage(err, 'Gagal update diskon')); }
-    finally { setSaving(false); }
+    } catch (err) { 
+      setError(getErrorMessage(err, 'Gagal update diskon')); 
+    } finally { 
+      setSaving(false); 
+    }
   }
 
-  // ── Manual Entry ────────────────────────────────────────────────────────────
   async function handleManualCreate() {
     if (!manualForm.po_number) { setManualError('No. Referensi wajib diisi'); return; }
     if (!manualForm.total_amount || parseFloat(manualForm.total_amount) <= 0) {

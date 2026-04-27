@@ -4,10 +4,6 @@ import { requireRole, requireAuth, ok, fail, handle } from '@/server/controllers
 import { ReceivableRepository, type PaymentType } from '@/server/repositories/ledger.repository';
 import { dbQueryOne } from '@/server/repositories/base.repository';
 
-// GET  /api/receivables           → daftar piutang (filter: search, status)
-// GET  /api/receivables?summary=1 → ringkasan total piutang aktif
-// POST /api/receivables           → buat piutang dari invoice atau manual
-
 const VALID_PAYMENT_TYPES: PaymentType[] = ['kredit', 'tempo', 'dp', 'cash'];
 
 export async function GET(req: NextRequest) {
@@ -24,6 +20,8 @@ export async function GET(req: NextRequest) {
     const receivables = await ReceivableRepository.findAll({
       search: sp.get('search') ?? '',
       status: sp.get('status') ?? '',
+      payment_type: sp.get('payment_type') ?? '', 
+      source: sp.get('source') ?? '',
     });
     return ok({ receivables });
   });
