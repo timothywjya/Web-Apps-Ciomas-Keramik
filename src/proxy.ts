@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const PUBLIC_PATHS  = ['/login', '/api/auth/login'];
 const STATIC_PREFIX = ['/_next', '/favicon', '/icons', '/images'];
-const COOKIE_NAME = '__Host-auth_token';
+const COOKIE_NAME = 'auth_token';
 
 interface RateEntry { count: number; resetAt: number }
 const rateLimitStore = new Map<string, RateEntry>();

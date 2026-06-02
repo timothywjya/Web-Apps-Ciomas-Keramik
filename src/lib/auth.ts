@@ -4,6 +4,9 @@ import { cookies } from 'next/headers';
 import { createHmac } from 'crypto';
 import type { UserPayload } from '@/types';
 
+const isDev = process.env.NODE_ENV !== 'production';
+const COOKIE_NAME = 'auth_token';
+
 function requireEnv(key: string): string {
   const val = process.env[key];
   if (!val || val.trim() === '') {
@@ -18,7 +21,6 @@ function requireEnv(key: string): string {
 const JWT_SECRET  = requireEnv('JWT_SECRET');
 const JWT_EXPIRES = '8h';
 const CONTENT_KEY_SECRET = process.env.CONTENT_KEY_SECRET ?? JWT_SECRET;
-const COOKIE_NAME = '__Host-auth_token';
 
 export const hashPassword    = (plain: string) => bcrypt.hash(plain, 12); // bumped from 10→12
 export const comparePassword = (plain: string, hash: string) => bcrypt.compare(plain, hash);
@@ -53,8 +55,8 @@ const SESSION_MAX_AGE = 60 * 60 * 8; // 8 hours — matches JWT_EXPIRES
 
 const COOKIE_OPTIONS = {
   httpOnly : true,
-  secure   : true,                        // __Host- requires secure=true always
-  sameSite : 'strict' as const,           // upgraded from lax → strict
+  secure   : !isDev,
+  sameSite : 'strict' as const,
   path     : '/',
   maxAge   : SESSION_MAX_AGE,
 };
