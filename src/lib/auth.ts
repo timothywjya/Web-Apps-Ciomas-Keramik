@@ -3,9 +3,23 @@ import bcrypt from 'bcryptjs';
 import { cookies } from 'next/headers';
 import { createHmac } from 'crypto';
 import type { UserPayload } from '@/types';
+import { addSeconds } from 'date-fns';
 
-const isDev = process.env.NODE_ENV !== 'production';
-const COOKIE_NAME = 'auth_token';
+const isDev = process.env.NODE_ENV === 'development';
+const COOKIE_NAME_DEV  = 'auth_token';
+const COOKIE_NAME_PROD = 'host_auth_token';
+const ACTIVE_COOKIE_NAME = isDev ? COOKIE_NAME_DEV : COOKIE_NAME_PROD;
+const JWT_SECRET  = requireEnv('JWT_SECRET');
+const JWT_EXPIRES = '8h';
+const CONTENT_KEY_SECRET = process.env.CONTENT_KEY_SECRET ?? JWT_SECRET;
+const SESSION_MAX_AGE = 60 * 60 * 8; // 8 hours — matches JWT_EXPIRES
+const COOKIE_OPTIONS = {
+  httpOnly : true,
+  secure   : !isDev,
+  sameSite : 'strict' as const,
+  path     : '/',
+  maxAge   : SESSION_MAX_AGE,
+};
 
 function requireEnv(key: string): string {
   const val = process.env[key];
@@ -17,10 +31,6 @@ function requireEnv(key: string): string {
   }
   return val;
 }
-
-const JWT_SECRET  = requireEnv('JWT_SECRET');
-const JWT_EXPIRES = '8h';
-const CONTENT_KEY_SECRET = process.env.CONTENT_KEY_SECRET ?? JWT_SECRET;
 
 export const hashPassword    = (plain: string) => bcrypt.hash(plain, 12); // bumped from 10→12
 export const comparePassword = (plain: string, hash: string) => bcrypt.compare(plain, hash);
@@ -47,28 +57,18 @@ export function verifyTokenStrict(token: string): UserPayload {
 
 export async function getSession(): Promise<UserPayload | null> {
   const store = await cookies();
-  const token = store.get(COOKIE_NAME)?.value;
+  const token = store.get(ACTIVE_COOKIE_NAME)?.value;
   return token ? verifyToken(token) : null;
 }
 
-const SESSION_MAX_AGE = 60 * 60 * 8; // 8 hours — matches JWT_EXPIRES
-
-const COOKIE_OPTIONS = {
-  httpOnly : true,
-  secure   : !isDev,
-  sameSite : 'strict' as const,
-  path     : '/',
-  maxAge   : SESSION_MAX_AGE,
-};
-
 export async function setAuthCookie(token: string): Promise<void> {
   const store = await cookies();
-  store.set(COOKIE_NAME, token, COOKIE_OPTIONS);
+  store.set(ACTIVE_COOKIE_NAME, token, COOKIE_OPTIONS);
 }
 
 export async function clearAuthCookie(): Promise<void> {
   const store = await cookies();
-  store.delete(COOKIE_NAME);
+  store.delete(ACTIVE_COOKIE_NAME);
 }
 
 export function generateContentKey(resourceId: string, userId: string): string {

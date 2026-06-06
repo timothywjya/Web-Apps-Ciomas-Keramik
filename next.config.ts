@@ -29,7 +29,7 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
-allowedDevOrigins: ['103.193.179.139'],
+allowedDevOrigins: [process.env.IP_PLER ? `http://${process.env.IP_PLER}:3000` : 'http://${process.env.DB_HOST}:3000'],
   async headers() {
     return [
       {
