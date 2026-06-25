@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const PUBLIC_PATHS  = ['/login', '/api/auth/login'];
 const STATIC_PREFIX = ['/_next', '/favicon', '/icons', '/images'];
-const COOKIE_NAME = 'auth_token';
+
+const isDev = process.env.NODE_ENV === 'development';
+const COOKIE_NAME_DEV  = 'auth_token';
+const COOKIE_NAME_PROD = 'host_auth_token';
+const ACTIVE_COOKIE_NAME = isDev ? COOKIE_NAME_DEV : COOKIE_NAME_PROD;
+
+let lastPrune = Date.now();
 
 interface RateEntry { count: number; resetAt: number }
 const rateLimitStore = new Map<string, RateEntry>();
@@ -35,7 +41,7 @@ function checkRateLimit(ip: string, pathname: string): boolean {
 }
 
 // Prune expired entries periodically (runs only when a request comes in)
-let lastPrune = Date.now();
+
 function pruneIfNeeded() {
   const now = Date.now();
   if (now - lastPrune < 5 * 60 * 1000) return;
@@ -104,7 +110,7 @@ function redirectToLogin(req: NextRequest, reason?: string): NextResponse {
   const url = new URL('/login', req.url);
   if (reason) url.searchParams.set('reason', reason);
   const res = NextResponse.redirect(url);
-  res.cookies.delete(COOKIE_NAME);
+  res.cookies.delete(ACTIVE_COOKIE_NAME);
   addSecurityHeaders(res);
   return res;
 }
@@ -148,7 +154,7 @@ export function proxy(req: NextRequest): NextResponse {
   }
 
   // 4. Auth check
-  const token = req.cookies.get(COOKIE_NAME)?.value;
+  const token = req.cookies.get(ACTIVE_COOKIE_NAME)?.value;
 
   if (!token) {
     return isApi
