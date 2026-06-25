@@ -7,17 +7,17 @@ const securityHeaders = [
   { key: 'X-XSS-Protection',          value: '1; mode=block' },
   { key: 'Referrer-Policy',           value: 'strict-origin-when-cross-origin' },
   { key: 'Permissions-Policy',        value: 'camera=(), microphone=(), geolocation=(), payment=()' },
-  ...(isDev
-    ? []
-    : [{ key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains; preload' }]
-  ),
+  // ...(isDev
+  //   ? []
+  //   : [{ key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains; preload' }]
+  // ),
   {
     key  : 'Content-Security-Policy',
     value: [
       "default-src 'self'",
       isDev ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'" : "script-src 'self' 'unsafe-inline'",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", // Tambahkan ini
-      "font-src 'self' https://fonts.gstatic.com",                     // Tambahkan ini
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", 
+      "font-src 'self' https://fonts.gstatic.com",         
       "img-src 'self' data: blob:",
       "connect-src 'self'",
       "frame-ancestors 'none'",
@@ -29,7 +29,7 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
-allowedDevOrigins: ['103.193.179.139'],
+allowedDevOrigins: [process.env.HOST_PRODUCTION ?? ''].filter(Boolean),
   async headers() {
     return [
       {

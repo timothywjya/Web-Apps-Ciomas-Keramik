@@ -51,12 +51,12 @@ export async function getSession(): Promise<UserPayload | null> {
   return token ? verifyToken(token) : null;
 }
 
-const SESSION_MAX_AGE = 60 * 60 * 8; // 8 hours — matches JWT_EXPIRES
+const SESSION_MAX_AGE = 60 * 60 * 8;
 
 const COOKIE_OPTIONS = {
   httpOnly : true,
-  secure   : !isDev,
-  sameSite : 'strict' as const,
+  secure: false,    
+  sameSite: 'lax' as const,
   path     : '/',
   maxAge   : SESSION_MAX_AGE,
 };
