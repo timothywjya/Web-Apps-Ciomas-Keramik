@@ -3,10 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 const PUBLIC_PATHS  = ['/login', '/api/auth/login'];
 const STATIC_PREFIX = ['/_next', '/favicon', '/icons', '/images'];
 
-const isDev = process.env.NODE_ENV === 'development';
-const COOKIE_NAME_DEV  = 'auth_token';
-const COOKIE_NAME_PROD = 'host_auth_token';
-const ACTIVE_COOKIE_NAME = isDev ? COOKIE_NAME_DEV : COOKIE_NAME_PROD;
+const ACTIVE_COOKIE_NAME = 'auth_token';
 
 let lastPrune = Date.now();
 
@@ -14,9 +11,9 @@ interface RateEntry { count: number; resetAt: number }
 const rateLimitStore = new Map<string, RateEntry>();
 
 const RATE_LIMITS: Record<string, { max: number; windowMs: number }> = {
-  '/api/auth/login' : { max: 5,   windowMs: 15 * 60 * 1000 }, 
-  '/api/'           : { max: 120, windowMs: 60 * 1000 },  
-  default           : { max: 200, windowMs: 60 * 1000 }, 
+  '/api/auth/login' : { max: 5,   windowMs: 15 * 60 * 1000 },
+  '/api/'           : { max: 120, windowMs: 60 * 1000 },
+  default           : { max: 200, windowMs: 60 * 1000 },
 };
 
 function getRateLimit(pathname: string) {
@@ -33,14 +30,12 @@ function checkRateLimit(ip: string, pathname: string): boolean {
 
   if (!entry || now > entry.resetAt) {
     rateLimitStore.set(key, { count: 1, resetAt: now + limit.windowMs });
-    return true;                        // allowed
+    return true;
   }
   entry.count++;
-  if (entry.count > limit.max) return false; // blocked
+  if (entry.count > limit.max) return false;
   return true;
 }
-
-// Prune expired entries periodically (runs only when a request comes in)
 
 function pruneIfNeeded() {
   const now = Date.now();
@@ -67,19 +62,16 @@ function isExpired(exp?: number): boolean {
 }
 
 function addSecurityHeaders(res: NextResponse): NextResponse {
-  // Prevent XSS
   res.headers.set('X-Content-Type-Options', 'nosniff');
   res.headers.set('X-Frame-Options', 'DENY');
   res.headers.set('X-XSS-Protection', '1; mode=block');
   res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-
-  // Content Security Policy — tighten further if you add external CDNs
   res.headers.set(
     'Content-Security-Policy',
     [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // Next.js needs unsafe-eval in dev
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "font-src 'self'",
@@ -89,12 +81,6 @@ function addSecurityHeaders(res: NextResponse): NextResponse {
       "form-action 'self'",
     ].join('; '),
   );
-
-  // HSTS — only meaningful over HTTPS
-  if (process.env.NODE_ENV === 'production') {
-    res.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
-  }
-
   return res;
 }
 
@@ -119,13 +105,7 @@ function rateLimitedResponse(isApi: boolean): NextResponse {
   if (isApi) {
     return NextResponse.json(
       { success: false, error: 'Terlalu banyak permintaan. Coba lagi nanti.' },
-      {
-        status: 429,
-        headers: {
-          'Retry-After': '60',
-          'X-RateLimit-Limit': '120',
-        },
-      },
+      { status: 429, headers: { 'Retry-After': '60', 'X-RateLimit-Limit': '120' } },
     );
   }
   return new NextResponse('Too Many Requests', {
@@ -138,7 +118,6 @@ export function proxy(req: NextRequest): NextResponse {
   const { pathname } = req.nextUrl;
   const isApi        = pathname.startsWith('/api/');
 
-  // 1. Skip static assets
   if (STATIC_PREFIX.some(p => pathname.startsWith(p))) {
     return addSecurityHeaders(NextResponse.next());
   }
@@ -153,7 +132,6 @@ export function proxy(req: NextRequest): NextResponse {
     return addSecurityHeaders(NextResponse.next());
   }
 
-  // 4. Auth check
   const token = req.cookies.get(ACTIVE_COOKIE_NAME)?.value;
 
   if (!token) {

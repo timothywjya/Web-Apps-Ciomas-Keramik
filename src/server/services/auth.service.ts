@@ -10,6 +10,7 @@ export const AuthService = {
     if (!username || !password) throw new Error(GENERIC_AUTH_ERROR);
 
     const user = await UserRepository.findByUsername(username);
+    
     const dummyHash = '$2a$12$invalidhashfortimingprotectiononly000000000000000000000';
     const passwordHash = user?.password_hash ?? dummyHash;
 

@@ -18,6 +18,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const payload = validateLoginPayload(body);
 
     const { token, user } = await AuthService.login(payload.username, payload.password);
+    
     await setAuthCookie(token);
     return ok({ user });
 

@@ -14,6 +14,7 @@ const pool = globalThis.pgPool ?? new Pool({
   max                    : 20,
   idleTimeoutMillis      : 30_000,
   connectionTimeoutMillis: 2_000,
+  ssl: false
 });
 
 if (process.env.NODE_ENV !== 'production') {
